@@ -29,7 +29,7 @@ Use these rules repeatedly across phases:
 
 ---
 
-# Phase 0 — Repository guidance and implementation plan
+# Phase 0 — Repository guidance and implementation plan ✅
 
 ## Prompt 0.1 — Create `AGENTS.md`
 
@@ -64,7 +64,7 @@ After writing AGENTS.md:
 - explain any assumptions you made
 ```
 
-## Prompt 0.2 — Create the implementation plan only
+## Prompt 0.2 — Create the implementation plan only ✅
 
 ```text
 Read README.md, AGENTS.md, and all files in docs/ first.
@@ -94,7 +94,7 @@ At the end:
 
 # Phase 1 — Monorepo / project skeleton
 
-## Prompt 1.1 — Create the repository skeleton
+## Prompt 1.1 — Create the repository skeleton ✅
 
 ```text
 Implement Phase 1 only.
@@ -111,7 +111,7 @@ Requirements:
   - tests
   - docs already exist and must remain untouched unless needed
 - Keep the structure pragmatic and suitable for:
-  - Python backend
+  - Python backend, install FastAPI
   - React frontend
   - Docker-based local development
 - Add placeholder README files only where useful.
@@ -127,7 +127,7 @@ At the end:
 - explain the intended purpose of each major directory
 ```
 
-## Prompt 1.2 — Add Docker-based local environment
+## Prompt 1.2 — Add Docker-based local environment  ✅
 
 ```text
 Implement the local Docker development foundation only.
