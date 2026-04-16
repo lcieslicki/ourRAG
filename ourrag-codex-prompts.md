@@ -31,7 +31,7 @@ Use these rules repeatedly across phases:
 
 # Phase 0 — Repository guidance and implementation plan ✅
 
-## Prompt 0.1 — Create `AGENTS.md`
+## Prompt 0.1 — Create `AGENTS.md` ✅
 
 ```text
 Create a root-level AGENTS.md for this repository.
@@ -92,7 +92,7 @@ At the end:
 
 ---
 
-# Phase 1 — Monorepo / project skeleton
+# Phase 1 — Monorepo / project skeleton ✅
 
 ## Prompt 1.1 — Create the repository skeleton ✅
 
@@ -158,7 +158,7 @@ At the end:
 - mention any commands still missing
 ```
 
-## Prompt 1.3 — Add configuration loading scaffolding
+## Prompt 1.3 — Add configuration loading scaffolding ✅
 
 ```text
 Implement configuration scaffolding for both backend and frontend.
@@ -193,9 +193,9 @@ At the end:
 
 ---
 
-# Phase 2 — Domain model and persistence foundation
+# Phase 2 — Domain model and persistence foundation ✅
 
-## Prompt 2.1 — Implement core domain and persistence scaffolding
+## Prompt 2.1 — Implement core domain and persistence scaffolding ✅
 
 ```text
 Implement the first backend domain/persistence slice.
@@ -230,7 +230,7 @@ At the end:
 - mention any invariants that still need application-layer enforcement
 ```
 
-## Prompt 2.2 — Add tests for domain invariants
+## Prompt 2.2 — Add tests for domain invariants ✅
 
 ```text
 Add tests for the domain and persistence foundation.
@@ -253,9 +253,9 @@ At the end:
 
 ---
 
-# Phase 3 — Document upload, storage, and versioning
+# Phase 3 — Document upload, storage, and versioning ✅
 
-## Prompt 3.1 — Implement local file storage and upload flow
+## Prompt 3.1 — Implement local file storage and upload flow ✅
 
 ```text
 Implement document upload and local filesystem storage.
@@ -286,7 +286,7 @@ At the end:
 - explain file path strategy
 ```
 
-## Prompt 3.2 — Add version activation and invalidation flows
+## Prompt 3.2 — Add version activation and invalidation flows ✅
 
 ```text
 Implement document version lifecycle actions.
@@ -307,7 +307,7 @@ At the end:
 - mention any assumptions you made
 ```
 
-## Prompt 3.3 — Add tests for upload and versioning
+## Prompt 3.3 — Add tests for upload and versioning ✅
 
 ```text
 Add tests for upload, storage, and document versioning.

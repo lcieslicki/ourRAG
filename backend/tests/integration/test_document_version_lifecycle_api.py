@@ -146,3 +146,46 @@ def test_member_cannot_activate_document_version(db_session, tmp_path) -> None:
 
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "workspace_access_denied"
+
+
+def test_activate_rejects_version_from_another_document(db_session, tmp_path) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    create_membership(db_session, user=user, workspace=workspace, role="admin")
+    document = create_document(db_session, workspace=workspace, created_by=user, slug_prefix="document-a")
+    other_document = create_document(db_session, workspace=workspace, created_by=user, slug_prefix="document-b")
+    other_version = create_document_version(db_session, document=other_document, created_by=user, version_number=1)
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.post(
+            f"/api/documents/{document.id}/versions/{other_version.id}/activate",
+            headers={"X-User-Id": user.id},
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "document_not_found"
+
+
+def test_invalidate_rejects_cross_workspace_user(db_session, tmp_path) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session, slug_prefix="workspace-a")
+    other_workspace = create_workspace(db_session, slug_prefix="workspace-b")
+    create_membership(db_session, user=user, workspace=workspace, role="admin")
+    other_document = create_document(db_session, workspace=other_workspace, created_by=user)
+    other_version = create_document_version(db_session, document=other_document, created_by=user, version_number=1)
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.post(
+            f"/api/documents/{other_document.id}/versions/{other_version.id}/invalidate",
+            headers={"X-User-Id": user.id},
+            json={"reason": "Should not be allowed"},
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "workspace_access_denied"

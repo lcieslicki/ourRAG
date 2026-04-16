@@ -126,6 +126,28 @@ def test_upload_rejects_unsupported_file_type(db_session, tmp_path) -> None:
     assert response.json()["detail"]["code"] == "unsupported_file_type"
 
 
+def test_upload_rejects_markdown_extension_with_unsupported_mime_type(db_session, tmp_path) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    create_membership(db_session, user=user, workspace=workspace, role="admin")
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.post(
+            "/api/documents/upload",
+            headers={"X-User-Id": user.id},
+            data={"workspace_id": workspace.id, "title": "Policy", "category": "HR"},
+            files={"file": ("policy.md", b"# Policy\n", "application/pdf")},
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "unsupported_file_type"
+    assert db_session.query(Document).filter_by(workspace_id=workspace.id).count() == 0
+    assert list(tmp_path.rglob("*")) == []
+
+
 def test_upload_requires_admin_or_owner_role(db_session, tmp_path) -> None:
     user = create_user(db_session)
     workspace = create_workspace(db_session)
@@ -171,3 +193,22 @@ def test_upload_existing_document_rejects_wrong_workspace(db_session, tmp_path) 
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "document_not_found"
+
+
+def test_upload_rejects_missing_workspace_membership(db_session, tmp_path) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.post(
+            "/api/documents/upload",
+            headers={"X-User-Id": user.id},
+            data={"workspace_id": workspace.id, "title": "Policy", "category": "HR"},
+            files={"file": ("policy.md", b"# Policy\n", "text/markdown")},
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "workspace_access_denied"
