@@ -18,6 +18,29 @@ make infra-logs
 make infra-down
 ```
 
+All backend and frontend project commands should run inside containers. This keeps dependency versions, service hostnames, and environment loading aligned with the Docker stack.
+
+Backend examples:
+
+```sh
+make backend-shell
+make backend-test
+make db-upgrade
+make db-current
+make db-revision MSG="add documents table"
+make backend-run CMD="python -m pytest tests/unit"
+```
+
+Frontend examples:
+
+```sh
+make frontend-shell
+make frontend-test
+make frontend-run CMD="npm run build"
+```
+
+Avoid running commands such as `pytest`, `alembic`, or `npm test` directly on the host unless you are intentionally debugging the host environment.
+
 Create local overrides when needed:
 
 ```sh

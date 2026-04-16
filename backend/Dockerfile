@@ -6,7 +6,10 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 COPY pyproject.toml ./
+COPY alembic.ini ./
 COPY app ./app
+COPY migrations ./migrations
+COPY tests ./tests
 
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -e ".[dev]"

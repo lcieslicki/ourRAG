@@ -7,6 +7,7 @@ RUN npm install
 
 COPY index.html ./
 COPY src ./src
+COPY tests ./tests
 
 EXPOSE 5173
 
