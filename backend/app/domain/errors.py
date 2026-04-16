@@ -20,3 +20,15 @@ class ConversationAccessDenied(DomainError):
 
 class UnsupportedFileType(DomainError):
     pass
+
+
+class DocumentVersionNotFound(DomainError):
+    pass
+
+
+class DocumentVersionNotReady(DomainError):
+    pass
+
+
+class DocumentVersionInvalidated(DomainError):
+    pass

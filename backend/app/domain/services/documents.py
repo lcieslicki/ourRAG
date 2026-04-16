@@ -3,11 +3,17 @@ from pathlib import Path
 import re
 
 from fastapi import UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.domain.errors import UnsupportedFileType
-from app.domain.models import Document, DocumentVersion
+from app.domain.errors import (
+    DocumentAccessDenied,
+    DocumentVersionInvalidated,
+    DocumentVersionNotFound,
+    DocumentVersionNotReady,
+    UnsupportedFileType,
+)
+from app.domain.models import Audit, Document, DocumentVersion
 from app.domain.models.common import new_id
 from app.domain.services.access import WorkspaceAccessService
 from app.infrastructure.storage.base import StoredFile, Storage
@@ -86,6 +92,114 @@ class DocumentService:
         self.session.flush()
 
         return DocumentUploadResult(document=document, version=version, stored_file=stored_file)
+
+    def activate_version(self, *, user_id: str, document_id: str, version_id: str) -> DocumentVersion:
+        document, version = self._resolve_document_version_for_admin_action(
+            user_id=user_id,
+            document_id=document_id,
+            version_id=version_id,
+        )
+
+        if version.is_invalidated:
+            raise DocumentVersionInvalidated("Invalidated document versions cannot be activated.")
+
+        if version.processing_status != "ready":
+            raise DocumentVersionNotReady("Only ready document versions can be activated.")
+
+        self.session.execute(
+            update(DocumentVersion)
+            .where(DocumentVersion.document_id == document.id)
+            .values(is_active=False)
+        )
+        version.is_active = True
+        version.is_invalidated = False
+        version.invalidated_reason = None
+        self._record_audit(
+            workspace_id=document.workspace_id,
+            user_id=user_id,
+            event_type="document_version_activated",
+            entity_id=version.id,
+            payload={
+                "document_id": document.id,
+                "version_number": version.version_number,
+            },
+        )
+        self.session.flush()
+        return version
+
+    def invalidate_version(
+        self,
+        *,
+        user_id: str,
+        document_id: str,
+        version_id: str,
+        reason: str | None = None,
+    ) -> DocumentVersion:
+        document, version = self._resolve_document_version_for_admin_action(
+            user_id=user_id,
+            document_id=document_id,
+            version_id=version_id,
+        )
+        version.is_active = False
+        version.is_invalidated = True
+        version.invalidated_reason = reason.strip() if reason else None
+        self._record_audit(
+            workspace_id=document.workspace_id,
+            user_id=user_id,
+            event_type="document_version_invalidated",
+            entity_id=version.id,
+            payload={
+                "document_id": document.id,
+                "version_number": version.version_number,
+                "reason": version.invalidated_reason,
+            },
+        )
+        self.session.flush()
+        return version
+
+    def _resolve_document_version_for_admin_action(
+        self,
+        *,
+        user_id: str,
+        document_id: str,
+        version_id: str,
+    ) -> tuple[Document, DocumentVersion]:
+        document = self.session.get(Document, document_id)
+
+        if document is None:
+            raise DocumentAccessDenied("Document not found.")
+
+        self.access.ensure_workspace_role(
+            user_id=user_id,
+            workspace_id=document.workspace_id,
+            allowed_roles={"owner", "admin"},
+        )
+        version = self.session.get(DocumentVersion, version_id)
+
+        if version is None or version.document_id != document.id:
+            raise DocumentVersionNotFound("Document version not found.")
+
+        return document, version
+
+    def _record_audit(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        event_type: str,
+        entity_id: str,
+        payload: dict,
+    ) -> None:
+        self.session.add(
+            Audit(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                event_type=event_type,
+                entity_type="document_version",
+                entity_id=entity_id,
+                payload_json=payload,
+            )
+        )
 
     def _resolve_document(
         self,

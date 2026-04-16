@@ -1,11 +1,23 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import CurrentUser, get_current_user, get_db
-from app.api.schemas.documents import DocumentUploadResponse
-from app.domain.errors import DocumentAccessDenied, UnsupportedFileType, WorkspaceAccessDenied, WorkspaceRoleDenied
+from app.api.schemas.documents import (
+    DocumentUploadResponse,
+    DocumentVersionLifecycleResponse,
+    InvalidateDocumentVersionRequest,
+)
+from app.domain.errors import (
+    DocumentAccessDenied,
+    DocumentVersionInvalidated,
+    DocumentVersionNotFound,
+    DocumentVersionNotReady,
+    UnsupportedFileType,
+    WorkspaceAccessDenied,
+    WorkspaceRoleDenied,
+)
 from app.domain.services.documents import DocumentService
 from app.infrastructure.storage.local import LocalFileStorage, get_local_file_storage
 
@@ -67,4 +79,103 @@ def upload_document(
         mime_type=result.version.mime_type,
         processing_status=result.version.processing_status,
         is_active=result.version.is_active,
+    )
+
+
+@router.post(
+    "/{document_id}/versions/{version_id}/activate",
+    response_model=DocumentVersionLifecycleResponse,
+)
+def activate_document_version(
+    document_id: str,
+    version_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    storage: Annotated[LocalFileStorage, Depends(get_local_file_storage)],
+) -> DocumentVersionLifecycleResponse:
+    service = DocumentService(db, storage)
+
+    try:
+        version = service.activate_version(
+            user_id=current_user.id,
+            document_id=document_id,
+            version_id=version_id,
+        )
+        db.commit()
+    except DocumentVersionNotReady as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "document_version_not_ready", "message": str(exc)},
+        ) from exc
+    except DocumentVersionInvalidated as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "document_version_invalidated", "message": str(exc)},
+        ) from exc
+    except (DocumentAccessDenied, DocumentVersionNotFound) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "document_not_found", "message": str(exc)},
+        ) from exc
+    except (WorkspaceAccessDenied, WorkspaceRoleDenied) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "workspace_access_denied", "message": str(exc)},
+        ) from exc
+
+    return _lifecycle_response(version)
+
+
+@router.post(
+    "/{document_id}/versions/{version_id}/invalidate",
+    response_model=DocumentVersionLifecycleResponse,
+)
+def invalidate_document_version(
+    document_id: str,
+    version_id: str,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    storage: Annotated[LocalFileStorage, Depends(get_local_file_storage)],
+    payload: InvalidateDocumentVersionRequest = Body(default_factory=InvalidateDocumentVersionRequest),
+) -> DocumentVersionLifecycleResponse:
+    service = DocumentService(db, storage)
+
+    try:
+        version = service.invalidate_version(
+            user_id=current_user.id,
+            document_id=document_id,
+            version_id=version_id,
+            reason=payload.reason,
+        )
+        db.commit()
+    except (DocumentAccessDenied, DocumentVersionNotFound) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "document_not_found", "message": str(exc)},
+        ) from exc
+    except (WorkspaceAccessDenied, WorkspaceRoleDenied) as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "workspace_access_denied", "message": str(exc)},
+        ) from exc
+
+    return _lifecycle_response(version)
+
+
+def _lifecycle_response(version) -> DocumentVersionLifecycleResponse:
+    return DocumentVersionLifecycleResponse(
+        document_id=version.document.id,
+        document_version_id=version.id,
+        workspace_id=version.document.workspace_id,
+        version_number=version.version_number,
+        processing_status=version.processing_status,
+        is_active=version.is_active,
+        is_invalidated=version.is_invalidated,
+        invalidated_reason=version.invalidated_reason,
     )

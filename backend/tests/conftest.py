@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import engine
@@ -11,6 +12,12 @@ def db_session() -> Iterator[Session]:
     connection = engine.connect()
     transaction = connection.begin()
     session = Session(bind=connection)
+    session.begin_nested()
+
+    @event.listens_for(session, "after_transaction_end")
+    def restart_savepoint(session: Session, transaction) -> None:
+        if transaction.nested and not transaction._parent.nested:
+            session.begin_nested()
 
     try:
         yield session
