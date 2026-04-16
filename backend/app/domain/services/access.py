@@ -19,6 +19,16 @@ class WorkspaceAccessService:
 
         return WorkspaceAccessPolicy.require_membership(membership)
 
+    def ensure_workspace_role(self, user_id: str, workspace_id: str, allowed_roles: set[str]) -> WorkspaceMembership:
+        membership = self.session.scalar(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.user_id == user_id,
+                WorkspaceMembership.workspace_id == workspace_id,
+            )
+        )
+
+        return WorkspaceAccessPolicy.require_role(membership, allowed_roles)
+
     def ensure_document_access(self, user_id: str, workspace_id: str, document_id: str) -> Document:
         self.ensure_workspace_member(user_id=user_id, workspace_id=workspace_id)
 

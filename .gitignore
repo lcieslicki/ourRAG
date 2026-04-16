@@ -212,8 +212,8 @@ frontend/build/
 frontend/.vite/
 
 # Local project runtime data
-storage/
-tmp/
+/storage/
+/tmp/
 
 # Cursor
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to

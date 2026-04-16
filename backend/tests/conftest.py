@@ -3,15 +3,19 @@ from collections.abc import Iterator
 import pytest
 from sqlalchemy.orm import Session
 
-from app.infrastructure.db.session import SessionLocal
+from app.infrastructure.db.session import engine
 
 
 @pytest.fixture()
 def db_session() -> Iterator[Session]:
-    session = SessionLocal()
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = Session(bind=connection)
 
     try:
         yield session
     finally:
-        session.rollback()
         session.close()
+        if transaction.is_active:
+            transaction.rollback()
+        connection.close()
