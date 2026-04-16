@@ -8,11 +8,14 @@ This repository currently contains documentation and sample knowledge-base data 
 - `docs/` contains supporting documentation assets, currently including `overview.png`.
 - `.claude/` and `CLAUDE.md` contain assistant-specific guidance. Keep Codex-facing guidance in this `AGENTS.md`.
 
-If application code is added later, place it under a dedicated source directory such as `src/`, and place tests under `tests/` or next to modules using the project language's normal convention.
+- `backend/` is the Python/FastAPI backend skeleton. Keep backend package code under `backend/app/` and backend tests under `backend/tests/`.
+- `frontend/` is the React frontend skeleton. Keep React source under `frontend/src/` and frontend tests under `frontend/tests/`.
+- `infra/` contains local Docker-related setup.
+- `tests/` is reserved for cross-service and end-to-end tests.
 
 ## Build, Test, and Development Commands
 
-No build system, package manager, or test runner is currently configured. Do not invent commands in documentation or automation until the related tooling exists.
+The skeleton defines package metadata but does not yet implement business behavior.
 
 Useful repository checks for the current structure:
 
@@ -21,7 +24,20 @@ find data -name '*.md'
 find docs -maxdepth 1 -type f
 ```
 
-When adding a runtime, document the canonical commands here, for example `npm test`, `pytest`, `make build`, or `uv run`.
+Local infrastructure commands:
+
+```sh
+make infra-up
+make infra-logs
+make infra-down
+```
+
+Backend and frontend test commands are placeholders until tests are added:
+
+```sh
+make backend-test
+make frontend-test
+```
 
 ## Coding Style & Naming Conventions
 
