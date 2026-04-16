@@ -11,3 +11,5 @@ npm install
 npm run dev
 npm test
 ```
+
+Vite loads environment files from the repository root. Required frontend variables use the `VITE_` prefix, for example `VITE_APP_ENV` and `VITE_API_BASE_URL`.

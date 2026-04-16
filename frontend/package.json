@@ -5,8 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:local": "vite --mode local",
+    "dev:docker": "vite --mode docker",
     "build": "vite build",
     "test": "vitest run",
+    "test:unit": "vitest run --mode test",
     "preview": "vite preview"
   },
   "dependencies": {

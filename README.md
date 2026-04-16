@@ -1,45 +1,95 @@
 # ourRAG
 
-Repozytorium dokumentacji i danych przykladowych dla wewnetrznego projektu typu RAG.
+`ourRAG` is a multi-tenant document intelligence platform focused on internal company knowledge chat in Polish, built around Retrieval-Augmented Generation (RAG).
 
-## Struktura
+## Product goals
 
-- `data/firma_ABC/` - dokumenty zrodlowe Markdown pogrupowane domenowo (HR, finanse, IT itp.)
-- `docs/` - zasoby pomocnicze (np. `overview.png`)
-- `backend/` - szkielet backendu Python/FastAPI
-- `frontend/` - szkielet frontendu React
-- `infra/` - lokalna infrastruktura Docker Compose
-- `tests/` - miejsce na testy end-to-end i scenariusze przekrojowe
-- `CLAUDE.md`, `AGENTS.md` - wskazowki dla agentow AI
+The system is designed to:
 
-## Jak uzywac
+- answer user questions using company-owned documents,
+- keep conversations scoped to an explicitly selected workspace,
+- support conversation memory so users can continue topics naturally,
+- show sources used to build the answer,
+- support document versioning and invalidation,
+- run on a single VPS with Docker-managed services,
+- start with Markdown (`.md`) ingestion and evolve toward PDF, TXT, and DOCX.
 
-Na ten moment repozytorium zawiera dane, dokumentacje i poczatkowy szkielet aplikacji, bez zaimplementowanej logiki biznesowej RAG.
+## MVP scope
 
-Przydatne komendy do szybkiej weryfikacji zawartosci:
+The MVP includes:
 
-```sh
-find data -name '*.md'
-find docs -maxdepth 1 -type f
+- backend written in Python,
+- frontend written in React,
+- chat UI based on `assistant-ui`,
+- PostgreSQL for relational data,
+- Qdrant for vector search,
+- Ollama running locally with Bielik as the generation model,
+- local filesystem storage for uploaded files,
+- multi-tenant isolation using explicit workspace context,
+- asynchronous ingestion and indexing,
+- source attribution in responses,
+- conversation memory using recent messages and rolling summaries.
+
+## Key product assumptions
+
+- A single application instance serves many workspaces.
+- A user may belong to many workspaces.
+- A conversation belongs to exactly one workspace.
+- The user must explicitly select the active workspace before chatting.
+- Retrieval is always scoped to the active workspace.
+- Documents are versioned.
+- Only active document versions are used for standard answers.
+- Older versions may be invalidated by an administrator.
+- Hybrid search and reranking are planned extensions, not MVP features.
+- English language support is a future extension; MVP is Polish-first.
+
+## Recommended documentation reading order
+
+1. `docs/ARCHITECTURE.md`
+2. `docs/DOMAIN_MODEL.md`
+3. `docs/DATA_MODEL.md`
+4. `docs/INGESTION_PIPELINE.md`
+5. `docs/RETRIEVAL.md`
+6. `docs/CHAT_MEMORY.md`
+7. `docs/API_CONTRACT.md`
+8. `docs/CONFIGURATION.md`
+9. `docs/SECURITY.md`
+10. `docs/TESTING.md`
+
+## Repository documentation layout
+
+```text
+README.md
+docs/
+├── ARCHITECTURE.md
+├── DOMAIN_MODEL.md
+├── DATA_MODEL.md
+├── BACKEND_STACK.md
+├── COMPONENTS.md
+├── INGESTION_PIPELINE.md
+├── RETRIEVAL.md
+├── CHAT_MEMORY.md
+├── API_CONTRACT.md
+├── CONFIGURATION.md
+├── SECURITY.md
+├── TESTING.md
+├── DEPLOYMENT.md
+├── OBSERVABILITY.md
+├── FAILURE_MODES.md
+├── FIXTURES.md
+└── ROADMAP.md
 ```
 
-Lokalna infrastruktura:
+## Guiding principles
 
-```sh
-make infra-up
-make infra-logs
-make infra-down
-```
+- Keep the system pragmatic and easy to operate on a single VPS.
+- Make tenant isolation a hard invariant.
+- Keep frontend thin; backend is the source of truth.
+- Keep all runtime configuration in environment variables.
+- Design every component for testability.
+- Prefer explicit filters over natural-language interpretation for access scope.
+- Treat conversation memory as a product feature, not an optional extra.
 
-## Konwencja nazw dokumentow
 
-Dla plikow w `data/firma_ABC/` uzywaj lowercase snake_case z prefiksem domeny, np.:
-
-- `hr_praca_zdalna.md`
-- `finanse_planowanie_budzetu.md`
-- `it_polityka_bezpieczenstwa.md`
-
-## Uwagi
-
-- Zachowuj zmiany male i celowane.
-- Nie zmieniaj nazw istniejacych plikow bez wyraznej potrzeby.
+# How to boot locally:
+[Check this file](infra/docker/README.md)

@@ -23,3 +23,5 @@ python -m venv .venv
 pip install -e ".[dev]"
 pytest
 ```
+
+Configuration is loaded from environment variables using `.env` and `.env.<environment>` files at the repository root. See `.env.example` and `docs/CONFIGURATION.md`.

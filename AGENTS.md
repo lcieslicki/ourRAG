@@ -1,75 +1,51 @@
-# Repository Guidelines
+# AGENTS.md
 
-## Project Structure & Module Organization
+## Project rules
 
-This repository currently contains documentation and sample knowledge-base data for an internal RAG-style project.
+- Read the documentation in `README.md` and all files in `docs/` before making implementation decisions.
+- Treat the documentation as the source of truth.
+- If code and docs conflict, report the conflict and follow the docs unless the user explicitly says otherwise.
 
-- `data/firma_ABC/` contains Markdown source documents grouped by business domain in the filename, for example `hr_polityka_urlopowa.md`, `finanse_procedura_zakupow.md`, and `it_polityka_bezpieczenstwa.md`.
-- `docs/` contains supporting documentation assets, currently including `overview.png`.
-- `.claude/` and `CLAUDE.md` contain assistant-specific guidance. Keep Codex-facing guidance in this `AGENTS.md`.
+## Architecture rules
 
-- `backend/` is the Python/FastAPI backend skeleton. Keep backend package code under `backend/app/` and backend tests under `backend/tests/`.
-- `frontend/` is the React frontend skeleton. Keep React source under `frontend/src/` and frontend tests under `frontend/tests/`.
-- `infra/` contains local Docker-related setup.
-- `tests/` is reserved for cross-service and end-to-end tests.
+- Backend: Python, freamwork FastAPI
+- Frontend: React.
+- Chat UI: assistant-ui.
+- PostgreSQL is the source of truth for relational data.
+- Qdrant is the vector store.
+- Ollama is the local model runtime.
+- Generation model: Bielik.
+- Workspace is the primary tenant isolation boundary.
+- A conversation belongs to exactly one workspace.
+- Retrieval must always be scoped to workspace_id.
+- Standard retrieval must use active document versions only.
 
-## Build, Test, and Development Commands
+## Implementation rules
 
-The skeleton defines package metadata but does not yet implement business behavior.
+- Keep the frontend thin.
+- Do not put retrieval or authorization logic in the frontend.
+- Prefer small, reviewable commits.
+- Prefer explicit types and clear boundaries between modules.
+- Use dependency injection where useful.
+- Design components for testability.
+- All runtime configuration must come from environment variables.
+- Support `.env` and `.env.<environment>` patterns.
+- Do not hardcode secrets, hosts, ports, model names, or collection names.
 
-Useful repository checks for the current structure:
+## Testing rules
 
-```sh
-find data -name '*.md'
-find docs -maxdepth 1 -type f
-```
+- Add unit tests for domain logic.
+- Add integration tests for storage, Qdrant, Ollama gateway, and workers.
+- Add end-to-end tests for the full ingestion and chat flow.
+- Add tenant isolation tests for every sensitive area.
+- Do not mark implementation complete unless tests pass or limitations are clearly reported.
 
-Local infrastructure commands:
+## Delivery rules
 
-```sh
-make infra-up
-make infra-logs
-make infra-down
-```
-
-Backend and frontend test commands are placeholders until tests are added:
-
-```sh
-make backend-test
-make frontend-test
-```
-
-## Coding Style & Naming Conventions
-
-Keep Markdown files concise and structured with clear headings. Use UTF-8 and preserve Polish domain terminology where it appears in source documents.
-
-For knowledge-base files in `data/firma_ABC/`, use lowercase snake_case names with a domain prefix:
-
-```text
-hr_praca_zdalna.md
-finanse_planowanie_budzetu.md
-logistyka_zarzadzanie_magazynem.md
-```
-
-If code is introduced, follow the formatter and linting tools configured for that language. Avoid broad refactors unrelated to the requested change.
-
-## Testing Guidelines
-
-There are no tests yet. For document-only changes, verify filenames, Markdown rendering, and that links or image references resolve. For future code, add focused tests for behavior changes and document the test command in this file.
-
-Prefer test names that describe expected behavior, such as `test_retrieves_hr_policy_document` or `shouldReturnMatchingFinanceProcedure`.
-
-## Commit & Pull Request Guidelines
-
-This directory is not currently initialized as a git repository, so there is no existing commit history to follow. Use short, imperative commit messages once git is initialized, for example:
-
-```text
-Add HR remote work policy document
-Document repository contributor guidelines
-```
-
-Pull requests should include a concise description, the reason for the change, verification performed, and screenshots only when visual assets or rendered documentation changed.
-
-## Agent-Specific Instructions
-
-Make small, targeted changes. Match the existing structure, do not rename data files without a clear reason, and surface uncertainty before changing project conventions.
+- Before coding, produce a short implementation plan.
+- Implement in phases.
+- After each phase, summarize:
+  - files created/changed
+  - what is complete
+  - what remains
+  - risks or open questions
