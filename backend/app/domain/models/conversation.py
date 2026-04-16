@@ -50,7 +50,7 @@ class Message(IdMixin, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     conversation = relationship("Conversation", back_populates="messages")
-    workspace = relationship("Workspace")
+    workspace = relationship("Workspace", overlaps="conversation,messages")
     user = relationship("User")
     summaries_as_last_message = relationship("ConversationSummary", back_populates="last_message")
 
