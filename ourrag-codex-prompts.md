@@ -1,4 +1,4 @@
-# ourRAG — Codex Prompt Series
+# ourRAG — Codex Prompt Series ✅
 
 This document contains a phased prompt sequence for implementing the `ourRAG` MVP with Codex.
 
@@ -331,9 +331,9 @@ At the end:
 
 ---
 
-# Phase 4 — Parser and chunking
+# Phase 4 — Parser and chunking ✅
 
-## Prompt 4.1 — Add parser interface and Markdown parser
+## Prompt 4.1 — Add parser interface and Markdown parser ✅
 
 ```text
 Implement the parser foundation and Markdown parser.
@@ -357,7 +357,7 @@ At the end:
 - describe what parser output looks like
 ```
 
-## Prompt 4.2 — Implement structure-aware chunking
+## Prompt 4.2 — Implement structure-aware chunking ✅
 
 ```text
 Implement the chunking module for Markdown documents.
@@ -381,7 +381,7 @@ At the end:
 - list its configuration points
 ```
 
-## Prompt 4.3 — Add parser and chunking tests
+## Prompt 4.3 — Add parser and chunking tests ✅
 
 ```text
 Add tests for parsing and chunking.
@@ -405,9 +405,9 @@ At the end:
 
 ---
 
-# Phase 5 — Async jobs and ingestion pipeline orchestration
+# Phase 5 — Async jobs and ingestion pipeline orchestration ✅
 
-## Prompt 5.1 — Add worker/job scaffolding
+## Prompt 5.1 — Add worker/job scaffolding ✅
 
 ```text
 Implement the asynchronous job foundation for ingestion.
@@ -430,7 +430,7 @@ At the end:
 - explain retry and failure state handling
 ```
 
-## Prompt 5.2 — Connect upload to async ingestion pipeline
+## Prompt 5.2 — Connect upload to async ingestion pipeline ✅
 
 ```text
 Connect document upload to the async ingestion pipeline.
@@ -447,7 +447,7 @@ At the end:
 - mention which stages are fully implemented vs scaffolded
 ```
 
-## Prompt 5.3 — Add tests for worker orchestration
+## Prompt 5.3 — Add tests for worker orchestration ✅
 
 ```text
 Add tests for ingestion orchestration.
@@ -468,9 +468,9 @@ At the end:
 
 ---
 
-# Phase 6 — Embeddings and vector indexing
+# Phase 6 — Embeddings and vector indexing ✅
 
-## Prompt 6.1 — Add embedding abstraction and initial implementation
+## Prompt 6.1 — Add embedding abstraction and initial implementation ✅
 
 ```text
 Implement the embedding service abstraction and an initial local embedding integration.
@@ -492,7 +492,7 @@ At the end:
 - list the configuration needed
 ```
 
-## Prompt 6.2 — Add Qdrant indexing layer
+## Prompt 6.2 — Add Qdrant indexing layer ✅
 
 ```text
 Implement the vector index layer with Qdrant.
@@ -521,7 +521,7 @@ At the end:
 - list all mandatory filters
 ```
 
-## Prompt 6.3 — Connect embeddings and indexing to the ingestion pipeline
+## Prompt 6.3 — Connect embeddings and indexing to the ingestion pipeline ✅
 
 ```text
 Complete the document indexing path.
@@ -540,7 +540,7 @@ At the end:
 - explain how reindexing would work from this design
 ```
 
-## Prompt 6.4 — Add tests for embeddings and indexing
+## Prompt 6.4 — Add tests for embeddings and indexing ✅
 
 ```text
 Add tests for embeddings and Qdrant indexing.
@@ -562,9 +562,9 @@ At the end:
 
 ---
 
-# Phase 7 — Retrieval layer
+# Phase 7 — Retrieval layer ✅
 
-## Prompt 7.1 — Implement retrieval service
+## Prompt 7.1 — Implement retrieval service ✅
 
 ```text
 Implement the retrieval service for MVP.
@@ -588,7 +588,7 @@ At the end:
 - explain exactly where workspace and active-version filtering are enforced
 ```
 
-## Prompt 7.2 — Add retrieval quality tests
+## Prompt 7.2 — Add retrieval quality tests ✅
 
 ```text
 Add retrieval tests using fixture-based documents.
@@ -610,9 +610,9 @@ At the end:
 
 ---
 
-# Phase 8 — Prompt builder and LLM gateway
+# Phase 8 — Prompt builder and LLM gateway ✅
 
-## Prompt 8.1 — Implement prompt builder
+## Prompt 8.1 — Implement prompt builder ✅
 
 ```text
 Implement the prompt builder.
@@ -635,7 +635,7 @@ At the end:
 - explain how no-context behavior is handled
 ```
 
-## Prompt 8.2 — Implement Ollama / Bielik gateway
+## Prompt 8.2 — Implement Ollama / Bielik gateway ✅
 
 ```text
 Implement the LLM gateway for local Ollama with Bielik.
@@ -657,8 +657,8 @@ At the end:
 - list runtime assumptions
 ```
 
-## Prompt 8.3 — Add tests for prompt builder and LLM gateway
-
+## Prompt 8.3 — Add tests for prompt builder and LLM gateway ✅
+ 
 ```text
 Add tests for prompt building and LLM gateway behavior.
 
@@ -679,9 +679,9 @@ At the end:
 
 ---
 
-# Phase 9 — Conversations, messages, and memory
+# Phase 9 — Conversations, messages, and memory ✅
 
-## Prompt 9.1 — Implement conversation and message APIs
+## Prompt 9.1 — Implement conversation and message APIs ✅
 
 ```text
 Implement the conversation and message API layer.
@@ -702,7 +702,7 @@ At the end:
 - explain access-control enforcement
 ```
 
-## Prompt 9.2 — Implement chat memory service
+## Prompt 9.2 — Implement chat memory service ✅
 
 ```text
 Implement the memory service for conversations.
@@ -722,7 +722,7 @@ At the end:
 - mention any shortcuts taken for MVP
 ```
 
-## Prompt 9.3 — Wire full chat flow backend
+## Prompt 9.3 — Wire full chat flow backend ✅
 
 ```text
 Implement the backend chat orchestration flow.
@@ -746,7 +746,7 @@ At the end:
 - identify any parts still stubbed or simplified
 ```
 
-## Prompt 9.4 — Add tests for conversations and memory
+## Prompt 9.4 — Add tests for conversations and memory ✅
 
 ```text
 Add tests for conversations, memory, and chat orchestration.
@@ -768,9 +768,9 @@ At the end:
 
 ---
 
-# Phase 10 — Admin APIs and management flows
+# Phase 10 — Admin APIs and management flows ✅
 
-## Prompt 10.1 — Implement admin API surface
+## Prompt 10.1 — Implement admin API surface ✅
 
 ```text
 Implement the MVP admin backend surface.
@@ -792,7 +792,7 @@ At the end:
 - list any operations intentionally left for later
 ```
 
-## Prompt 10.2 — Add admin and audit tests
+## Prompt 10.2 — Add admin and audit tests ✅
 
 ```text
 Add tests for admin actions and audit-sensitive flows.
@@ -812,9 +812,9 @@ At the end:
 
 ---
 
-# Phase 11 — React frontend and assistant-ui integration
+# Phase 11 — React frontend and assistant-ui integration ✅
 
-## Prompt 11.1 — Bootstrap React frontend and chat shell
+## Prompt 11.1 — Bootstrap React frontend and chat shell ✅
 
 ```text
 Implement the initial React frontend shell.
@@ -837,7 +837,7 @@ At the end:
 - explain where assistant-ui is integrated
 ```
 
-## Prompt 11.2 — Implement workspace switcher and chat integration
+## Prompt 11.2 — Implement workspace switcher and chat integration ✅
 
 ```text
 Implement the frontend workspace-aware chat flow.
@@ -857,7 +857,7 @@ At the end:
 - summarize user flow from workspace selection to chat answer
 ```
 
-## Prompt 11.3 — Render citations and scope filters
+## Prompt 11.3 — Render citations and scope filters ✅
 
 ```text
 Implement source rendering and explicit scope filters in the frontend.
@@ -875,7 +875,7 @@ At the end:
 - summarize the source rendering and filtering UX
 ```
 
-## Prompt 11.4 — Add frontend tests
+## Prompt 11.4 — Add frontend tests ✅
 
 ```text
 Add frontend tests for the MVP chat UI.

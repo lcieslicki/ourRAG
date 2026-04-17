@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__filesystem__directory_tree",
+      "Bash(find /Users/lukasz/dev/gitweb/ourRAG/backend/app/domain/models -name \"*.py\" -exec basename {} \\\\;)",
+      "Bash(*)",
+      "Read(**)",
+      "Write(**)",
+      "Edit(**)",
+      "mcp__filesystem__list_directory",
+      "mcp__filesystem__directory_tree",
+      "mcp__filesystem__read_text_file",
+      "mcp__filesystem__read_media_file",
+      "WebFetch(domain:lucide.dev)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "mcp__figma__whoami",
+      "mcp__figma__get_metadata",
+      "mcp__figma__get_design_context",
+      "WebSearch"
+    ]
+  }
+}

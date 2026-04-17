@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -37,3 +37,85 @@ class WorkspaceSettingsUpdateRequest(BaseModel):
     llm_model_override: str | None = Field(default=None, max_length=255)
     embedding_model_override: str | None = Field(default=None, max_length=255)
     settings: dict[str, Any] | None = None
+
+
+class UserCreateRequest(BaseModel):
+    email: str = Field(max_length=320)
+    display_name: str = Field(max_length=255)
+
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    display_name: str
+    status: str
+    created_at: datetime
+
+
+class WorkspaceCreateRequest(BaseModel):
+    name: str = Field(max_length=255)
+    slug: str = Field(max_length=120)
+
+
+class WorkspaceResponse(BaseModel):
+    id: str
+    name: str
+    slug: str
+    status: str
+    data_folder: str | None
+    created_at: datetime
+
+
+class WorkspaceMemberAddRequest(BaseModel):
+    user_id: str
+    role: Literal["owner", "admin", "member", "viewer"] = "owner"
+
+
+class WorkspaceMemberResponse(BaseModel):
+    user_id: str
+    email: str
+    display_name: str
+    role: str
+
+
+class AdminDocumentIndexResult(BaseModel):
+    document_id: str
+    document_version_id: str
+    title: str
+    file_name: str
+
+
+class AdminIndexFailure(BaseModel):
+    file_name: str
+    error: str
+
+
+class AdminDocumentUploadResponse(BaseModel):
+    indexed: list[AdminDocumentIndexResult]
+    failed: list[AdminIndexFailure]
+
+
+class AdminFolderIndexRequest(BaseModel):
+    user_id: str
+    folder: str | None = Field(default=None, max_length=255)
+    category: str = Field(default="admin", max_length=120)
+
+
+class AdminSetDataFolderRequest(BaseModel):
+    folder: str = Field(max_length=255)
+
+
+class AdminFolderIndexResponse(BaseModel):
+    folder: str
+    files_found: int
+    indexed: list[AdminDocumentIndexResult]
+    failed: list[AdminIndexFailure]
+
+
+class AdminDocumentListItemResponse(BaseModel):
+    id: str
+    title: str
+    category: str
+    status: str
+    latest_processing_status: str | None
+    version_count: int

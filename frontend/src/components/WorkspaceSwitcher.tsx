@@ -1,42 +1,24 @@
-type WorkspaceSwitcherProps = {
-  userId: string;
-  workspaceId: string;
-  onUserIdChange: (value: string) => void;
-  onWorkspaceIdChange: (value: string) => void;
-  onWorkspaceCommitted: () => void;
+import type { Session } from "../features/auth/LoginScreen";
+
+type Props = {
+  session: Session;
+  onLogout: () => void;
 };
 
-export function WorkspaceSwitcher({
-  userId,
-  workspaceId,
-  onUserIdChange,
-  onWorkspaceIdChange,
-  onWorkspaceCommitted,
-}: WorkspaceSwitcherProps) {
+export function WorkspaceSwitcher({ session, onLogout }: Props) {
   return (
-    <section className="workspace-switcher" aria-label="Workspace selection">
-      <label>
-        User ID
-        <input
-          value={userId}
-          onChange={(event) => onUserIdChange(event.target.value)}
-          placeholder="Backend X-User-Id"
-        />
-      </label>
-      <label>
-        Workspace ID
-        <input
-          value={workspaceId}
-          onChange={(event) => onWorkspaceIdChange(event.target.value)}
-          placeholder="Workspace UUID"
-        />
-      </label>
-      <button type="button" onClick={onWorkspaceCommitted} disabled={!userId.trim() || !workspaceId.trim()}>
-        Load workspace
+    <section className="session-info" aria-label="Aktywna sesja">
+      <div className="session-row">
+        <span className="session-label">Użytkownik</span>
+        <span className="session-value">{session.userEmail}</span>
+      </div>
+      <div className="session-row">
+        <span className="session-label">Workspace</span>
+        <span className="session-value">{session.workspaceName}</span>
+      </div>
+      <button type="button" className="session-change-btn" onClick={onLogout}>
+        Zmień sesję
       </button>
-      <p>
-        The active workspace is explicit and sent with chat requests. Access checks still happen on the backend.
-      </p>
     </section>
   );
 }

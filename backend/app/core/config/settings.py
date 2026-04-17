@@ -97,6 +97,7 @@ class Settings(BaseModel):
     queue: QueueConfig
     retrieval: RetrievalConfig
     chat_memory: ChatMemoryConfig
+    data_root: Path
 
 
 class EnvSettings(BaseSettings):
@@ -147,11 +148,20 @@ class EnvSettings(BaseSettings):
     chat_summary_enabled: bool
     chat_summary_refresh_every_n_messages: PositiveInt
 
+    data_root: Path | None = Field(default=None)
+
     model_config = SettingsConfigDict(
         case_sensitive=False,
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def set_data_root_default(self) -> "EnvSettings":
+        if self.data_root is None:
+            # Derive from FILES_STORAGE_ROOT: /data/storage → /data
+            self.data_root = self.files_storage_root.parent
+        return self
 
     @field_validator("rag_min_score_threshold", mode="before")
     @classmethod
@@ -218,6 +228,7 @@ class EnvSettings(BaseSettings):
                 summary_enabled=self.chat_summary_enabled,
                 summary_refresh_every_n_messages=self.chat_summary_refresh_every_n_messages,
             ),
+            data_root=self.data_root or find_env_root() / "data",
         )
 
 
