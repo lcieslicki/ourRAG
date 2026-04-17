@@ -73,6 +73,29 @@ def test_prompt_builder_no_context_instructs_model_to_say_not_available() -> Non
     assert "not available in the current workspace documents" in combined
 
 
+def test_prompt_builder_no_context_does_not_let_memory_replace_retrieval_context() -> None:
+    prompt = PromptBuilder().build(
+        PromptBuildInput(
+            workspace_name="ACME",
+            current_user_message="What is the exact reimbursement limit?",
+            retrieved_chunks=(),
+            memory=ConversationMemory(
+                summary="The user previously discussed reimbursements, but no exact limit was retrieved.",
+                recent_messages=(
+                    RecentMessage(role="user", content="We were talking about reimbursements."),
+                    RecentMessage(role="assistant", content="I can answer when the relevant policy is available."),
+                ),
+            ),
+        )
+    )
+
+    combined = "\n\n".join(message.content for message in prompt.messages)
+    assert "The user previously discussed reimbursements" in combined
+    assert "No retrieved document chunks were provided" in combined
+    assert "Do not invent policies, dates, names, procedures, or sources." in combined
+    assert "not available in the current workspace documents" in combined
+
+
 def test_prompt_builder_allows_versioned_system_prompt_override() -> None:
     prompt = PromptBuilder(template_version="custom_prompt_v2").build(
         PromptBuildInput(

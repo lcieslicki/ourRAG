@@ -162,6 +162,15 @@ def test_parse_ollama_chat_response_rejects_missing_content() -> None:
         parse_ollama_chat_response({"model": "bielik", "message": {"role": "assistant"}})
 
 
+def test_ollama_gateway_generate_rejects_malformed_provider_response() -> None:
+    gateway = gateway_with_client(
+        httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"model": "bielik", "done": True})))
+    )
+
+    with pytest.raises(OllamaGatewayError):
+        gateway.generate(GenerationRequest(messages=(PromptMessage(role="user", content="Hi"),)))
+
+
 def gateway_with_client(
     client: httpx.Client,
     *,
