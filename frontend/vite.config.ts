@@ -30,6 +30,10 @@ export default defineConfig(({ mode }) => {
   return {
     envDir: "..",
     plugins: [react()],
+    test: {
+      environment: "jsdom",
+      setupFiles: ["./tests/setup.ts"],
+    },
     server: {
       host: required(env, "FRONTEND_HOST"),
       port: parsePort(required(env, "FRONTEND_PORT")),

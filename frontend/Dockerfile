@@ -6,6 +6,7 @@ COPY package.json ./
 RUN npm install
 
 COPY index.html ./
+COPY vite.config.ts ./
 COPY src ./src
 COPY tests ./tests
 

@@ -1,4 +1,4 @@
-.PHONY: help infra-up infra-build infra-down infra-logs infra-ps backend-shell backend-run backend-test db-upgrade db-downgrade db-current db-revision frontend-shell frontend-run frontend-test
+.PHONY: help init infra-up infra-build infra-down infra-logs infra-ps backend-shell backend-run backend-test db-upgrade db-downgrade db-current db-revision frontend-shell frontend-run frontend-test
 
 COMPOSE_FILE := infra/docker/compose.local.yml
 COMPOSE_ENV_FILES := --env-file .env.example --env-file .env.docker.example
@@ -19,6 +19,7 @@ COMPOSE := docker compose $(COMPOSE_ENV_FILES) -f $(COMPOSE_FILE)
 
 help:
 	@echo "Infrastructure:"
+	@echo "  make init                     Build and fully initialize local stack"
 	@echo "  make infra-build              Build local Docker images"
 	@echo "  make infra-up                 Start the local stack"
 	@echo "  make infra-down               Stop the local stack"
@@ -38,6 +39,9 @@ help:
 	@echo "  make frontend-shell           Open a shell in frontend"
 	@echo "  make frontend-run CMD='...'   Run an arbitrary frontend command"
 	@echo "  make frontend-test            Run frontend tests"
+
+init: infra-build infra-up db-upgrade
+	@echo "Initialization complete. Stack is running and migrations are applied."
 
 infra-up:
 	$(COMPOSE) up -d
