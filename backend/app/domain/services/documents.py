@@ -91,7 +91,7 @@ class DocumentService:
         )
         self.session.add(version)
         self.session.flush()
-        DocumentProcessingJobService(self.session).enqueue(document_version_id=version.id, job_type="parse_document")
+        DocumentProcessingJobService(self.session).enqueue_upload_pipeline(document_version_id=version.id)
 
         return DocumentUploadResult(document=document, version=version, stored_file=stored_file)
 

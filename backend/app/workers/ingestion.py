@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.domain.jobs import (
     CHUNK_DOCUMENT,
     EMBED_DOCUMENT,
+    INGESTION_JOB_FLOW,
     INDEX_DOCUMENT,
     PARSE_DOCUMENT,
     REINDEX_DOCUMENT_VERSION,
@@ -27,6 +28,17 @@ class IngestionJobRunner:
         if job is None:
             return None
         return self.run(job.id)
+
+    def run_until_idle(self, *, max_jobs: int = 100) -> list[DocumentProcessingJob]:
+        processed: list[DocumentProcessingJob] = []
+
+        for _ in range(max_jobs):
+            job = self.run_next()
+            if job is None:
+                break
+            processed.append(job)
+
+        return processed
 
     def run(self, job_id: str) -> DocumentProcessingJob:
         job = self.jobs.get(job_id)
@@ -60,16 +72,19 @@ class IngestionJobRunner:
 
     def _handle_chunk_document(self, job: DocumentProcessingJob) -> None:
         version = self._version_for(job)
+        self._ensure_previous_stages_succeeded(job)
         version.processing_status = "processing"
         self.jobs.enqueue(document_version_id=version.id, job_type=EMBED_DOCUMENT)
 
     def _handle_embed_document(self, job: DocumentProcessingJob) -> None:
         version = self._version_for(job)
+        self._ensure_previous_stages_succeeded(job)
         version.processing_status = "processing"
         self.jobs.enqueue(document_version_id=version.id, job_type=INDEX_DOCUMENT)
 
     def _handle_index_document(self, job: DocumentProcessingJob) -> None:
         version = self._version_for(job)
+        self._ensure_previous_stages_succeeded(job)
         version.processing_status = "ready"
         version.indexed_at = utc_now()
 
@@ -78,6 +93,23 @@ class IngestionJobRunner:
         version.processing_status = "pending"
         version.indexed_at = None
         self.jobs.enqueue(document_version_id=version.id, job_type=PARSE_DOCUMENT, reuse_succeeded=False)
+
+    def _ensure_previous_stages_succeeded(self, job: DocumentProcessingJob) -> None:
+        if job.job_type not in INGESTION_JOB_FLOW:
+            return
+
+        required_stages = INGESTION_JOB_FLOW[: INGESTION_JOB_FLOW.index(job.job_type)]
+        for job_type in required_stages:
+            if not self._has_succeeded_job(document_version_id=job.document_version_id, job_type=job_type):
+                raise ValueError(f"Cannot run {job.job_type} before successful {job_type}.")
+
+    def _has_succeeded_job(self, *, document_version_id: str, job_type: str) -> bool:
+        return (
+            self.session.query(DocumentProcessingJob)
+            .filter_by(document_version_id=document_version_id, job_type=job_type, status="succeeded")
+            .count()
+            > 0
+        )
 
     @staticmethod
     def _version_for(job: DocumentProcessingJob) -> DocumentVersion:

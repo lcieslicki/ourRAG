@@ -62,6 +62,9 @@ class DocumentProcessingJobService:
             for job_type in INGESTION_JOB_FLOW
         ]
 
+    def enqueue_upload_pipeline(self, *, document_version_id: str) -> DocumentProcessingJob:
+        return self.enqueue(document_version_id=document_version_id, job_type=INGESTION_JOB_FLOW[0])
+
     def mark_running(self, job: DocumentProcessingJob) -> DocumentProcessingJob:
         if job.status == SUCCEEDED:
             return job
@@ -71,6 +74,8 @@ class DocumentProcessingJobService:
         job.error_message = None
         job.started_at = utc_now()
         job.finished_at = None
+        if job.document_version is not None and not job.document_version.is_invalidated:
+            job.document_version.processing_status = "processing"
         self.session.flush()
         return job
 

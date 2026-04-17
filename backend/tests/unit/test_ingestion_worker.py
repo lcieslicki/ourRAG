@@ -29,6 +29,28 @@ def test_runner_advances_default_ingestion_flow_to_ready(db_session) -> None:
     ]
 
 
+def test_runner_run_until_idle_processes_upload_pipeline(db_session) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    document = create_document(db_session, workspace=workspace, created_by=user)
+    version = create_document_version(db_session, document=document, created_by=user, version_number=1)
+    version.processing_status = "pending"
+    service = DocumentProcessingJobService(db_session)
+    service.enqueue_upload_pipeline(document_version_id=version.id)
+
+    processed = IngestionJobRunner(db_session).run_until_idle()
+
+    assert [job.job_type for job in processed] == [
+        "parse_document",
+        "chunk_document",
+        "embed_document",
+        "index_document",
+    ]
+    assert [job.status for job in processed] == ["succeeded", "succeeded", "succeeded", "succeeded"]
+    assert version.processing_status == "ready"
+    assert version.indexed_at is not None
+
+
 def test_runner_failed_job_records_error_and_can_be_retried(db_session) -> None:
     user = create_user(db_session)
     workspace = create_workspace(db_session)
@@ -53,6 +75,49 @@ def test_runner_failed_job_records_error_and_can_be_retried(db_session) -> None:
 
     assert retried.status == "queued"
     assert retried.error_message is None
+
+
+def test_retry_moves_version_back_to_processing_on_next_attempt(db_session) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    document = create_document(db_session, workspace=workspace, created_by=user)
+    version = create_document_version(db_session, document=document, created_by=user, version_number=1)
+    version.processing_status = "pending"
+    service = DocumentProcessingJobService(db_session)
+    job = service.enqueue_upload_pipeline(document_version_id=version.id)
+    runner = IngestionJobRunner(
+        db_session,
+        handlers={"parse_document": lambda _: (_ for _ in ()).throw(RuntimeError("temporary parse failure"))},
+    )
+    runner.run(job.id)
+    service.retry_failed(job_id=job.id)
+
+    retried = IngestionJobRunner(db_session).run(job.id)
+
+    assert retried.status == "succeeded"
+    assert version.processing_status == "processing"
+
+
+def test_downstream_job_cannot_mark_ready_when_previous_stage_failed(db_session) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    document = create_document(db_session, workspace=workspace, created_by=user)
+    version = create_document_version(db_session, document=document, created_by=user, version_number=1)
+    version.processing_status = "failed"
+    service = DocumentProcessingJobService(db_session)
+    chunk_job = service.enqueue(document_version_id=version.id, job_type="chunk_document")
+    index_job = service.enqueue(document_version_id=version.id, job_type="index_document")
+    runner = IngestionJobRunner(db_session)
+
+    failed_chunk = runner.run(chunk_job.id)
+    failed_index = runner.run(index_job.id)
+
+    assert failed_chunk.status == "failed"
+    assert "before successful parse_document" in failed_chunk.error_message
+    assert failed_index.status == "failed"
+    assert "before successful parse_document" in failed_index.error_message
+    assert version.processing_status == "failed"
+    assert version.indexed_at is None
 
 
 def test_runner_does_not_rerun_succeeded_job(db_session) -> None:

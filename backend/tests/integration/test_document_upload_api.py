@@ -6,6 +6,7 @@ from app.api.dependencies.db import get_db
 from app.infrastructure.storage.local import LocalFileStorage, get_local_file_storage
 from app.main import app
 from app.domain.models import Document, DocumentProcessingJob, DocumentVersion
+from app.workers.ingestion import IngestionJobRunner
 from tests.factories import create_document, create_membership, create_user, create_workspace
 
 
@@ -67,6 +68,42 @@ def test_upload_markdown_creates_document_version_and_stores_file(db_session, tm
     job = db_session.query(DocumentProcessingJob).filter_by(document_version_id=version.id).one()
     assert job.job_type == "parse_document"
     assert job.status == "queued"
+
+
+def test_upload_pipeline_can_process_uploaded_version_to_ready(db_session, tmp_path) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    create_membership(db_session, user=user, workspace=workspace, role="admin")
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.post(
+            "/api/documents/upload",
+            headers={"X-User-Id": user.id},
+            data={
+                "workspace_id": workspace.id,
+                "title": "Onboarding",
+                "category": "HR",
+            },
+            files={"file": ("onboarding.md", b"# Onboarding\n\nWelcome.\n", "text/markdown")},
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 201
+    version = db_session.get(DocumentVersion, response.json()["document_version_id"])
+    assert version.processing_status == "pending"
+
+    processed = IngestionJobRunner(db_session).run_until_idle()
+
+    assert [job.job_type for job in processed] == [
+        "parse_document",
+        "chunk_document",
+        "embed_document",
+        "index_document",
+    ]
+    assert version.processing_status == "ready"
+    assert version.indexed_at is not None
 
 
 def test_upload_new_version_for_existing_document_increments_version_number(db_session, tmp_path) -> None:
