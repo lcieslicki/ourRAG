@@ -159,7 +159,7 @@ class EnvSettings(BaseSettings):
     @model_validator(mode="after")
     def set_data_root_default(self) -> "EnvSettings":
         if self.data_root is None:
-            # Derive from FILES_STORAGE_ROOT: /data/storage → /data
+            # Derive from FILES_STORAGE_ROOT, for example: /app/data/storage -> /app/data.
             self.data_root = self.files_storage_root.parent
         return self
 

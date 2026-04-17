@@ -20,7 +20,7 @@ services:
       - ../../backend/tests:/app/tests
       - ../../backend/alembic.ini:/app/alembic.ini
       - ../../backend/migrations:/app/migrations
-      - backend_storage:/data/storage
+      - ../../data:/app/data
     depends_on:
       - postgres
       - qdrant
@@ -83,7 +83,6 @@ services:
       - ollama_data:/root/.ollama
 
 volumes:
-  backend_storage:
   frontend_node_modules:
   postgres_data:
   qdrant_data:

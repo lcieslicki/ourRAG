@@ -71,7 +71,8 @@ EMBEDDING_TIMEOUT_SECONDS=30
 ### Filesystem storage
 ```env
 FILES_STORAGE_DRIVER=local
-FILES_STORAGE_ROOT=/data/storage
+FILES_STORAGE_ROOT=/app/data/storage
+DATA_ROOT=/app/data
 ```
 
 ### Queue / workers
