@@ -1,7 +1,102 @@
+from app.domain.embeddings import EmbeddingMetadata, EmbeddingResult
 from app.domain.models import DocumentProcessingJob
 from app.domain.services.processing_jobs import DocumentProcessingJobService
+from app.infrastructure.storage.local import LocalFileStorage
 from app.workers.ingestion import IngestionJobRunner
 from tests.factories import create_document, create_document_version, create_user, create_workspace
+
+
+class FakeEmbeddingService:
+    def __init__(self) -> None:
+        self.chunks = []
+
+    def embed_texts(self, inputs):
+        return [
+            EmbeddingResult(
+                vector=[float(index), float(index + 1)],
+                metadata=EmbeddingMetadata(
+                    provider="fake",
+                    model_name="fake-embed",
+                    model_version="fake-embed:v1",
+                    dimensions=2,
+                ),
+                input_metadata=item.metadata,
+            )
+            for index, item in enumerate(inputs)
+        ]
+
+    def embed_chunks(self, chunks):
+        self.chunks = chunks
+        return [
+            EmbeddingResult(
+                vector=[float(index), float(index + 1)],
+                metadata=EmbeddingMetadata(
+                    provider="fake",
+                    model_name="fake-embed",
+                    model_version="fake-embed:v1",
+                    dimensions=2,
+                ),
+                input_metadata={"chunk_index": chunk.chunk_index},
+            )
+            for index, chunk in enumerate(chunks)
+        ]
+
+    def embed_query(self, query: str):
+        return EmbeddingResult(
+            vector=[0.0, 1.0],
+            metadata=EmbeddingMetadata(
+                provider="fake",
+                model_name="fake-embed",
+                model_version="fake-embed:v1",
+                dimensions=2,
+            ),
+            input_metadata={"input_type": "query"},
+        )
+
+
+class FakeVectorIndex:
+    def __init__(self, *, fail_upsert: bool = False) -> None:
+        self.fail_upsert = fail_upsert
+        self.deleted_versions = []
+        self.ensured_sizes = []
+        self.upserted_points = []
+
+    def delete_document_version_vectors(self, *, workspace_id: str, document_version_id: str) -> None:
+        self.deleted_versions.append((workspace_id, document_version_id))
+
+    def ensure_collection(self, *, vector_size: int, distance: str = "Cosine") -> None:
+        self.ensured_sizes.append((vector_size, distance))
+
+    def upsert_chunk_vectors(self, points) -> None:
+        if self.fail_upsert:
+            raise RuntimeError("qdrant unavailable")
+        self.upserted_points.extend(points)
+
+
+def prepare_version_with_file(db_session, tmp_path, *, is_active: bool = False):
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    document = create_document(db_session, workspace=workspace, created_by=user)
+    version = create_document_version(
+        db_session,
+        document=document,
+        created_by=user,
+        version_number=1,
+        is_active=is_active,
+    )
+    version.processing_status = "pending"
+    storage = LocalFileStorage(tmp_path)
+    version.storage_path = storage.original_file_path(
+        workspace_id=workspace.id,
+        document_id=document.id,
+        version_id=version.id,
+        file_name="policy.md",
+    )
+    storage.write_text(
+        relative_path=version.storage_path,
+        content="# Vacation Policy\n\nEmployees can request vacation.\n\n## Approval\n\nManager approval is required.\n",
+    )
+    return workspace, document, version, storage
 
 
 def test_runner_advances_default_ingestion_flow_to_ready(db_session) -> None:
@@ -49,6 +144,103 @@ def test_runner_run_until_idle_processes_upload_pipeline(db_session) -> None:
     assert [job.status for job in processed] == ["succeeded", "succeeded", "succeeded", "succeeded"]
     assert version.processing_status == "ready"
     assert version.indexed_at is not None
+
+
+def test_indexing_path_parses_chunks_embeds_and_indexes_inactive_version(db_session, tmp_path) -> None:
+    workspace, document, version, storage = prepare_version_with_file(db_session, tmp_path, is_active=False)
+    embedding_service = FakeEmbeddingService()
+    vector_index = FakeVectorIndex()
+    service = DocumentProcessingJobService(db_session)
+    service.enqueue_upload_pipeline(document_version_id=version.id)
+
+    processed = IngestionJobRunner(
+        db_session,
+        storage=storage,
+        embedding_service=embedding_service,
+        vector_index=vector_index,
+    ).run_until_idle()
+
+    assert [job.job_type for job in processed] == [
+        "parse_document",
+        "chunk_document",
+        "embed_document",
+        "index_document",
+    ]
+    assert version.processing_status == "ready"
+    assert version.parsed_text_path is not None
+    assert storage.read_text(version.parsed_text_path).startswith("# Vacation Policy")
+    assert version.chunk_count == len(embedding_service.chunks)
+    assert version.chunk_count > 0
+    assert version.embedding_model_name == "fake-embed"
+    assert version.embedding_model_version == "fake-embed:v1"
+    assert version.chunking_strategy_version == "markdown_semantic_v1"
+    assert version.indexed_at is not None
+    assert vector_index.deleted_versions == [(workspace.id, version.id)]
+    assert vector_index.ensured_sizes == [(2, "Cosine")]
+    assert len(vector_index.upserted_points) == version.chunk_count
+    first_point = vector_index.upserted_points[0]
+    assert first_point.workspace_id == workspace.id
+    assert first_point.document_id == document.id
+    assert first_point.document_version_id == version.id
+    assert first_point.category == document.category
+    assert first_point.is_active is False
+
+
+def test_indexing_path_marks_active_version_payload_active(db_session, tmp_path) -> None:
+    _, _, version, storage = prepare_version_with_file(db_session, tmp_path, is_active=True)
+    vector_index = FakeVectorIndex()
+    service = DocumentProcessingJobService(db_session)
+    service.enqueue_upload_pipeline(document_version_id=version.id)
+
+    IngestionJobRunner(
+        db_session,
+        storage=storage,
+        embedding_service=FakeEmbeddingService(),
+        vector_index=vector_index,
+    ).run_until_idle()
+
+    assert version.processing_status == "ready"
+    assert all(point.is_active is True for point in vector_index.upserted_points)
+
+
+def test_indexing_failure_does_not_mark_version_ready(db_session, tmp_path) -> None:
+    _, _, version, storage = prepare_version_with_file(db_session, tmp_path)
+    service = DocumentProcessingJobService(db_session)
+    service.enqueue_upload_pipeline(document_version_id=version.id)
+
+    processed = IngestionJobRunner(
+        db_session,
+        storage=storage,
+        embedding_service=FakeEmbeddingService(),
+        vector_index=FakeVectorIndex(fail_upsert=True),
+    ).run_until_idle()
+
+    assert processed[-1].job_type == "index_document"
+    assert processed[-1].status == "failed"
+    assert processed[-1].error_message == "qdrant unavailable"
+    assert version.processing_status == "failed"
+    assert version.indexed_at is None
+
+
+def test_invalidated_version_is_not_indexed(db_session, tmp_path) -> None:
+    _, _, version, storage = prepare_version_with_file(db_session, tmp_path)
+    version.is_invalidated = True
+    service = DocumentProcessingJobService(db_session)
+    job = service.enqueue_upload_pipeline(document_version_id=version.id)
+    vector_index = FakeVectorIndex()
+
+    result = IngestionJobRunner(
+        db_session,
+        storage=storage,
+        embedding_service=FakeEmbeddingService(),
+        vector_index=vector_index,
+    ).run(job.id)
+
+    assert result.status == "failed"
+    assert result.error_message == "Invalidated document versions cannot be processed."
+    assert version.processing_status == "failed"
+    assert vector_index.upserted_points == []
+    assert vector_index.deleted_versions == []
 
 
 def test_pipeline_records_status_transitions_before_ready(db_session) -> None:
