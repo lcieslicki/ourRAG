@@ -1,5 +1,11 @@
 import { useEffect, useReducer, useState } from "react";
-import type { AdminDocumentListItem, AdminUserResponse, AdminWorkspaceMemberResponse, AdminWorkspaceResponse } from "../../lib/api/types";
+import type {
+  AdminDocumentListItem,
+  AdminProcessingJob,
+  AdminUserResponse,
+  AdminWorkspaceMemberResponse,
+  AdminWorkspaceResponse,
+} from "../../lib/api/types";
 import type { ApiClient } from "../../lib/api/client";
 
 type Tab = "users" | "workspaces";
@@ -424,9 +430,16 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
   const [uploading, setUploading] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [warnings, setWarnings] = useState<{ file_name: string; error: string }[]>([]);
+  const [processingJobs, setProcessingJobs] = useState<AdminProcessingJob[]>([]);
+  const [loadingJobs, setLoadingJobs] = useState(false);
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkReindexing, setBulkReindexing] = useState(false);
 
   useEffect(() => {
     void loadDocuments();
+    void loadProcessingJobs();
     setFolderEdit(workspace.data_folder ?? "");
   }, [workspace.id]);
 
@@ -436,6 +449,18 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
       setDocuments(docs);
     } catch (e) {
       onError(String(e));
+    }
+  }
+
+  async function loadProcessingJobs() {
+    setLoadingJobs(true);
+    try {
+      const jobs = await apiClient.adminListProcessingJobs(workspace.id);
+      setProcessingJobs(jobs);
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setLoadingJobs(false);
     }
   }
 
@@ -464,6 +489,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
       setFiles(null);
       (e.target as HTMLFormElement).reset();
       await loadDocuments();
+      await loadProcessingJobs();
     } catch (err) {
       onError(String(err));
     } finally {
@@ -479,10 +505,104 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
       const res = await apiClient.adminIndexFolder(workspace.id, { user_id: userId, folder: null as unknown as string, category });
       setWarnings(res.failed);
       await loadDocuments();
+      await loadProcessingJobs();
     } catch (err) {
       onError(String(err));
     } finally {
       setIndexing(false);
+    }
+  }
+
+  async function handleDeleteDocument(documentId: string) {
+    const confirmed = window.confirm("Na pewno usunąć dokument? Ta operacja usunie też wersje i wektory.");
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingDocumentId(documentId);
+    try {
+      await apiClient.adminDeleteDocument(workspace.id, documentId);
+      await loadDocuments();
+      await loadProcessingJobs();
+    } catch (err) {
+      onError(String(err));
+    } finally {
+      setDeletingDocumentId(null);
+    }
+  }
+
+  async function handleDeleteAllDocuments() {
+    const confirmed = window.confirm("Na pewno usunąć wszystkie dokumenty z tego workspace? Operacja jest nieodwracalna.");
+    if (!confirmed) {
+      return;
+    }
+
+    setBulkDeleting(true);
+    try {
+      await apiClient.adminDeleteAllDocuments(workspace.id);
+      await loadDocuments();
+      await loadProcessingJobs();
+    } catch (err) {
+      onError(String(err));
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
+  async function handleReindexAllDocuments() {
+    setBulkReindexing(true);
+    try {
+      await apiClient.adminReindexAllDocuments(workspace.id);
+      await loadDocuments();
+      await loadProcessingJobs();
+    } catch (err) {
+      onError(String(err));
+    } finally {
+      setBulkReindexing(false);
+    }
+  }
+
+  function latestFailedJobForDocument(documentId: string): AdminProcessingJob | null {
+    return (
+      processingJobs.find(
+        (job) => job.document_id === documentId && job.status === "failed",
+      ) ?? null
+    );
+  }
+
+  async function handleRetryForDocument(document: AdminDocumentListItem) {
+    const failedJob = latestFailedJobForDocument(document.id);
+    try {
+      if (failedJob) {
+        setRetryingJobId(failedJob.id);
+        await apiClient.adminRetryProcessingJob(workspace.id, failedJob.id);
+      } else if (document.latest_version_id) {
+        setRetryingJobId(document.id);
+        await apiClient.reindexDocumentVersion(document.id, document.latest_version_id);
+      } else {
+        onError("Dokument nie ma wersji do ponownej indeksacji.");
+        return;
+      }
+
+      await loadProcessingJobs();
+      await loadDocuments();
+    } catch (err) {
+      onError(String(err));
+    } finally {
+      setRetryingJobId(null);
+    }
+  }
+
+  async function handleRetryJob(job: AdminProcessingJob) {
+    setRetryingJobId(job.id);
+    try {
+      await apiClient.adminRetryProcessingJob(workspace.id, job.id);
+      await loadProcessingJobs();
+      await loadDocuments();
+    } catch (err) {
+      onError(String(err));
+    } finally {
+      setRetryingJobId(null);
     }
   }
 
@@ -574,23 +694,100 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
           <h4 style={{ margin: 0 }}>Dokumenty ({documents.length})</h4>
           <button className="admin-btn-small" onClick={() => void loadDocuments()}>Odśwież</button>
+          <button
+            className="admin-btn-small"
+            onClick={() => void handleReindexAllDocuments()}
+            disabled={bulkReindexing || documents.length === 0}
+          >
+            {bulkReindexing ? "Zlecanie…" : "Zleć indeksację wszystkich"}
+          </button>
+          <button
+            className="admin-btn-small"
+            onClick={() => void handleDeleteAllDocuments()}
+            disabled={bulkDeleting || documents.length === 0}
+          >
+            {bulkDeleting ? "Usuwanie…" : "Usuń wszystkie"}
+          </button>
         </div>
         {documents.length === 0 ? (
           <p className="muted">Brak dokumentów.</p>
         ) : (
           <table className="admin-table">
             <thead>
-              <tr><th>Tytuł</th><th>Kategoria</th><th>Status</th><th>Wersje</th></tr>
+              <tr><th>Tytuł</th><th>Kategoria</th><th>Status</th><th>Wersje</th><th>Akcje</th></tr>
             </thead>
             <tbody>
               {documents.map((d) => (
                 <tr key={d.id}>
                   <td>{d.title}</td>
                   <td>{d.category}</td>
-                  <td><code>{d.latest_processing_status ?? "—"}</code></td>
+                  <td>
+                    <code>{d.latest_processing_status ?? "—"}</code>
+                    {d.latest_error_message && (
+                      <div className="muted" style={{ marginTop: 4, maxWidth: 420, whiteSpace: "pre-wrap" }}>
+                        <strong>{d.latest_error_job_type ?? "error"}:</strong> {d.latest_error_message}
+                      </div>
+                    )}
+                  </td>
                   <td>{d.version_count}</td>
+                  <td style={{ display: "flex", gap: 8 }}>
+                    <button
+                      className="admin-btn-small"
+                      onClick={() => void handleRetryForDocument(d)}
+                      disabled={retryingJobId === d.id || retryingJobId === latestFailedJobForDocument(d.id)?.id}
+                    >
+                      {latestFailedJobForDocument(d.id) ? "Ponów failed job" : "Ponów indeksację"}
+                    </button>
+                    <button
+                      className="admin-btn-small"
+                      onClick={() => void handleDeleteDocument(d.id)}
+                      disabled={deletingDocumentId === d.id}
+                    >
+                      {deletingDocumentId === d.id ? "Usuwanie…" : "Usuń"}
+                    </button>
+                  </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+          <h4 style={{ margin: 0 }}>Błędy indeksacji</h4>
+          <button className="admin-btn-small" onClick={() => void loadProcessingJobs()}>
+            {loadingJobs ? "Odświeżanie…" : "Odśwież"}
+          </button>
+        </div>
+        {processingJobs.filter((job) => job.status === "failed").length === 0 ? (
+          <p className="muted">Brak błędów indeksacji.</p>
+        ) : (
+          <table className="admin-table">
+            <thead>
+              <tr><th>Dokument</th><th>Etap</th><th>Błąd</th><th>Próby</th><th>Akcja</th></tr>
+            </thead>
+            <tbody>
+              {processingJobs
+                .filter((job) => job.status === "failed")
+                .slice(0, 20)
+                .map((job) => (
+                  <tr key={job.id}>
+                    <td>{job.document_title}</td>
+                    <td><code>{job.job_type}</code></td>
+                    <td style={{ maxWidth: 420, whiteSpace: "pre-wrap" }}>{job.error_message ?? "—"}</td>
+                    <td>{job.attempts}</td>
+                    <td>
+                      <button
+                        className="admin-btn-small"
+                        onClick={() => void handleRetryJob(job)}
+                        disabled={retryingJobId === job.id}
+                      >
+                        {retryingJobId === job.id ? "Ponawianie…" : "Ponów"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         )}

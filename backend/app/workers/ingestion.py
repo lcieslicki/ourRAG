@@ -1,4 +1,5 @@
 from collections.abc import Callable
+import logging
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -24,6 +25,7 @@ from app.infrastructure.storage.local import LocalFileStorage
 from app.infrastructure.vector_index import QdrantVectorIndex, VectorPoint
 
 JobHandler = Callable[[DocumentProcessingJob], None]
+logger = logging.getLogger(__name__)
 
 
 class IngestionJobRunner:
@@ -63,32 +65,43 @@ class IngestionJobRunner:
         job = self.jobs.next_queued()
         if job is None:
             return None
+        logger.info("ingestion.next_queued job_id=%s job_type=%s", job.id, job.job_type)
         return self.run(job.id)
 
     def run_until_idle(self, *, max_jobs: int = 100) -> list[DocumentProcessingJob]:
         processed: list[DocumentProcessingJob] = []
+        logger.info("ingestion.run_until_idle.start max_jobs=%s", max_jobs)
 
         for _ in range(max_jobs):
             job = self.run_next()
             if job is None:
                 break
             processed.append(job)
-
+        logger.info("ingestion.run_until_idle.done processed_jobs=%s", len(processed))
         return processed
 
     def run(self, job_id: str) -> DocumentProcessingJob:
         job = self.jobs.get(job_id)
         if job.status == "succeeded":
+            logger.info("ingestion.run.skip_succeeded job_id=%s job_type=%s", job.id, job.job_type)
             return job
 
+        logger.info("ingestion.run.start job_id=%s job_type=%s", job.id, job.job_type)
         self.jobs.mark_running(job)
         try:
             self.handlers[job.job_type](job)
         except Exception as exc:
             self.jobs.mark_failed(job, error=exc)
+            logger.exception(
+                "ingestion.run.failed job_id=%s job_type=%s error=%s",
+                job.id,
+                job.job_type,
+                str(exc),
+            )
             return job
 
         self.jobs.mark_succeeded(job)
+        logger.info("ingestion.run.succeeded job_id=%s job_type=%s", job.id, job.job_type)
         return job
 
     def _default_handlers(self) -> dict[str, JobHandler]:
@@ -102,10 +115,12 @@ class IngestionJobRunner:
 
     def _handle_parse_document(self, job: DocumentProcessingJob) -> None:
         version = self._version_for(job)
+        logger.info("ingestion.stage.parse.start job_id=%s version_id=%s", job.id, version.id)
         if self.storage is None:
             if version.processing_status == "pending":
                 version.processing_status = "processing"
             self.jobs.enqueue(document_version_id=version.id, job_type=CHUNK_DOCUMENT)
+            logger.info("ingestion.stage.parse.skip_storage job_id=%s version_id=%s", job.id, version.id)
             return
 
         document = version.document
@@ -120,13 +135,16 @@ class IngestionJobRunner:
         if version.processing_status == "pending":
             version.processing_status = "processing"
         self.jobs.enqueue(document_version_id=version.id, job_type=CHUNK_DOCUMENT)
+        logger.info("ingestion.stage.parse.done job_id=%s version_id=%s parsed_path=%s", job.id, version.id, parsed_path)
 
     def _handle_chunk_document(self, job: DocumentProcessingJob) -> None:
         version = self._version_for(job)
+        logger.info("ingestion.stage.chunk.start job_id=%s version_id=%s", job.id, version.id)
         self._ensure_previous_stages_succeeded(job)
         if self.storage is None:
             version.processing_status = "processing"
             self.jobs.enqueue(document_version_id=version.id, job_type=EMBED_DOCUMENT)
+            logger.info("ingestion.stage.chunk.skip_storage job_id=%s version_id=%s", job.id, version.id)
             return
 
         document = version.document
@@ -155,13 +173,21 @@ class IngestionJobRunner:
         version.chunking_strategy_version = chunking_config.strategy_version
         version.processing_status = "processing"
         self.jobs.enqueue(document_version_id=version.id, job_type=EMBED_DOCUMENT)
+        logger.info(
+            "ingestion.stage.chunk.done job_id=%s version_id=%s chunk_count=%s",
+            job.id,
+            version.id,
+            len(chunks),
+        )
 
     def _handle_embed_document(self, job: DocumentProcessingJob) -> None:
         version = self._version_for(job)
+        logger.info("ingestion.stage.embed.start job_id=%s version_id=%s", job.id, version.id)
         self._ensure_previous_stages_succeeded(job)
         if self.storage is None or self.embedding_service is None:
             version.processing_status = "processing"
             self.jobs.enqueue(document_version_id=version.id, job_type=INDEX_DOCUMENT)
+            logger.info("ingestion.stage.embed.skip_provider job_id=%s version_id=%s", job.id, version.id)
             return
 
         document = version.document
@@ -198,22 +224,33 @@ class IngestionJobRunner:
             version.embedding_model_version = embedding_results[0].metadata.model_version
         version.processing_status = "processing"
         self.jobs.enqueue(document_version_id=version.id, job_type=INDEX_DOCUMENT)
+        logger.info(
+            "ingestion.stage.embed.done job_id=%s version_id=%s embedding_count=%s model=%s",
+            job.id,
+            version.id,
+            len(embedding_results),
+            version.embedding_model_name,
+        )
 
     def _handle_index_document(self, job: DocumentProcessingJob) -> None:
         version = self._version_for(job)
+        logger.info("ingestion.stage.index.start job_id=%s version_id=%s", job.id, version.id)
         self._ensure_previous_stages_succeeded(job)
         if self.storage is not None and self.vector_index is not None:
             self._index_document_version(version)
         version.processing_status = "ready"
         version.indexed_at = utc_now()
+        logger.info("ingestion.stage.index.done job_id=%s version_id=%s indexed_at=%s", job.id, version.id, version.indexed_at)
 
     def _handle_reindex_document_version(self, job: DocumentProcessingJob) -> None:
         version = self._version_for(job)
+        logger.info("ingestion.stage.reindex.start job_id=%s version_id=%s", job.id, version.id)
         version.processing_status = "pending"
         version.indexed_at = None
         version.embedding_model_name = None
         version.embedding_model_version = None
         self.jobs.enqueue(document_version_id=version.id, job_type=PARSE_DOCUMENT, reuse_succeeded=False)
+        logger.info("ingestion.stage.reindex.done job_id=%s version_id=%s", job.id, version.id)
 
     def _index_document_version(self, version: DocumentVersion) -> None:
         document = version.document
@@ -232,9 +269,11 @@ class IngestionJobRunner:
             document_version_id=version.id,
         )
         if not points:
+            logger.info("ingestion.stage.index.no_points version_id=%s", version.id)
             return
 
         self.vector_index.upsert_chunk_vectors(points)
+        logger.info("ingestion.stage.index.upserted version_id=%s points=%s", version.id, len(points))
 
     def _ensure_previous_stages_succeeded(self, job: DocumentProcessingJob) -> None:
         if job.job_type not in INGESTION_JOB_FLOW:

@@ -118,4 +118,22 @@ class AdminDocumentListItemResponse(BaseModel):
     category: str
     status: str
     latest_processing_status: str | None
+    latest_version_id: str | None
+    latest_error_message: str | None
+    latest_error_job_type: str | None
     version_count: int
+
+
+class AdminDocumentDeleteResponse(BaseModel):
+    document_id: str
+    deleted_versions: int
+
+
+class AdminDocumentsBulkDeleteResponse(BaseModel):
+    deleted_documents: int
+    deleted_versions: int
+
+
+class AdminDocumentsBulkReindexResponse(BaseModel):
+    queued_jobs: int
+    skipped_documents: int

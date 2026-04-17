@@ -1,4 +1,6 @@
 import io
+import logging
+import shutil
 from pathlib import Path
 from typing import Annotated
 
@@ -9,9 +11,12 @@ from starlette.datastructures import Headers
 
 from app.api.dependencies import CurrentUser, get_current_user, get_db
 from app.api.schemas.admin import (
+    AdminDocumentsBulkDeleteResponse,
+    AdminDocumentsBulkReindexResponse,
     AdminDocumentIndexResult,
     AdminDocumentListItemResponse,
     AdminDocumentUploadResponse,
+    AdminDocumentDeleteResponse,
     AdminFolderIndexRequest,
     AdminFolderIndexResponse,
     AdminIndexFailure,
@@ -31,11 +36,15 @@ from app.domain.errors import WorkspaceAccessDenied, WorkspaceRoleDenied
 from app.domain.models import Audit, Document, DocumentProcessingJob, DocumentVersion, Workspace
 from app.domain.models.user import User
 from app.domain.models.workspace import WorkspaceMembership
+from app.domain.services.processing_jobs import DocumentProcessingJobService, ProcessingJobNotFound
 from app.domain.services.access import WorkspaceAccessService
 from app.domain.services.documents import DocumentService
 from app.infrastructure.db.session import SessionLocal
 from app.infrastructure.storage.local import LocalFileStorage, get_local_file_storage
+from app.infrastructure.vector_index.qdrant import QdrantVectorIndex, VectorIndexError
 from app.workers import IngestionJobRunner
+
+logger = logging.getLogger(__name__)
 
 
 class _FilePathUpload:
@@ -51,11 +60,15 @@ class _FilePathUpload:
 def _resolve_data_folder(data_root: Path, folder: str) -> Path:
     if ".." in Path(folder).parts:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, {"code": "invalid_folder", "message": "Invalid path"})
+    data_root = data_root.resolve()
     candidate = (data_root / folder.strip("/")).resolve()
     if data_root not in candidate.parents and candidate != data_root:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, {"code": "invalid_folder", "message": "Path escapes data directory"})
     if not candidate.is_dir():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, {"code": "invalid_folder", "message": "Folder not found"})
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            {"code": "invalid_folder", "message": f"Folder not found: {candidate} (data_root={data_root})"},
+        )
     return candidate
 
 
@@ -63,6 +76,52 @@ def _run_ingestion() -> None:
     with SessionLocal() as session:
         IngestionJobRunner.from_settings(session).run_until_idle()
         session.commit()
+
+
+def _processing_job_response(job: DocumentProcessingJob, document: Document) -> ProcessingJobResponse:
+    return ProcessingJobResponse(
+        id=job.id,
+        document_version_id=job.document_version_id,
+        document_id=document.id,
+        document_title=document.title,
+        job_type=job.job_type,
+        status=job.status,
+        attempts=job.attempts,
+        error_message=job.error_message,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+    )
+
+
+def _delete_document_with_artifacts(db: Session, *, workspace_id: str, document: Document) -> tuple[int, int]:
+    versions = list(document.versions)
+    vector_index = QdrantVectorIndex.from_settings(get_settings())
+    for version in versions:
+        try:
+            vector_index.delete_document_version_vectors(
+                workspace_id=workspace_id,
+                document_version_id=version.id,
+            )
+        except VectorIndexError as exc:
+            # Document deletion should still succeed when vector cleanup is already absent
+            # (e.g. collection not initialized yet or version not indexed).
+            logger.warning(
+                "admin.delete_document.skip_vector_cleanup workspace_id=%s document_id=%s version_id=%s error=%s",
+                workspace_id,
+                document.id,
+                version.id,
+                str(exc),
+            )
+
+    document_storage_root = get_settings().storage.root / "workspaces" / workspace_id / "documents" / document.id
+    if document_storage_root.exists():
+        shutil.rmtree(document_storage_root)
+
+    deleted_versions = len(versions)
+    db.delete(document)
+    return 1, deleted_versions
 
 
 def _index_one(
@@ -122,20 +181,7 @@ def list_processing_jobs(
     ).all()
 
     return [
-        ProcessingJobResponse(
-            id=job.id,
-            document_version_id=job.document_version_id,
-            document_id=document.id,
-            document_title=document.title,
-            job_type=job.job_type,
-            status=job.status,
-            attempts=job.attempts,
-            error_message=job.error_message,
-            started_at=job.started_at,
-            finished_at=job.finished_at,
-            created_at=job.created_at,
-            updated_at=job.updated_at,
-        )
+        _processing_job_response(job, document)
         for job, _, document in jobs
     ]
 
@@ -210,6 +256,22 @@ def update_workspace_settings(
     return workspace_settings_response(workspace)
 
 
+# ── Diagnostics ──────────────────────────────────────────────────────────────
+
+@router.get("/data-info")
+def data_info() -> dict:
+    settings = get_settings()
+    data_root = settings.data_root.resolve()
+    exists = data_root.is_dir()
+    subfolders = sorted(p.name for p in data_root.iterdir() if p.is_dir()) if exists else []
+    return {
+        "data_root": str(data_root),
+        "files_storage_root": str(settings.storage.root),
+        "exists": exists,
+        "subfolders": subfolders,
+    }
+
+
 # ── Bootstrap document endpoints (no auth required) ──────────────────────────
 
 @router.get("/workspaces/{workspace_id}/documents", response_model=list[AdminDocumentListItemResponse])
@@ -220,19 +282,73 @@ def list_workspace_documents(workspace_id: str, db: Annotated[Session, Depends(g
         .order_by(Document.created_at.desc())
     ).scalars().all()
 
+    latest_failed_job_rows = db.execute(
+        select(DocumentProcessingJob, DocumentVersion)
+        .join(DocumentVersion, DocumentProcessingJob.document_version_id == DocumentVersion.id)
+        .join(Document, DocumentVersion.document_id == Document.id)
+        .where(Document.workspace_id == workspace_id, DocumentProcessingJob.status == "failed")
+        .order_by(Document.id, DocumentProcessingJob.created_at.desc())
+    ).all()
+    latest_failed_by_document: dict[str, DocumentProcessingJob] = {}
+    for job, version in latest_failed_job_rows:
+        if version.document_id not in latest_failed_by_document:
+            latest_failed_by_document[version.document_id] = job
+
     result = []
     for doc in documents:
         versions = sorted(doc.versions, key=lambda v: v.version_number)
         latest = versions[-1] if versions else None
+        latest_failed = latest_failed_by_document.get(doc.id)
         result.append(AdminDocumentListItemResponse(
             id=doc.id,
             title=doc.title,
             category=doc.category,
             status=doc.status,
             latest_processing_status=latest.processing_status if latest else None,
+            latest_version_id=latest.id if latest else None,
+            latest_error_message=latest_failed.error_message if latest_failed else None,
+            latest_error_job_type=latest_failed.job_type if latest_failed else None,
             version_count=len(versions),
         ))
     return result
+
+
+@router.delete("/workspaces/{workspace_id}/documents/{document_id}", response_model=AdminDocumentDeleteResponse)
+def delete_workspace_document(
+    workspace_id: str,
+    document_id: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminDocumentDeleteResponse:
+    document = db.get(Document, document_id)
+    if document is None or document.workspace_id != workspace_id:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            {"code": "document_not_found", "message": "Document not found in workspace"},
+        )
+
+    _, deleted_versions = _delete_document_with_artifacts(db, workspace_id=workspace_id, document=document)
+    db.commit()
+    return AdminDocumentDeleteResponse(document_id=document_id, deleted_versions=deleted_versions)
+
+
+@router.delete("/workspaces/{workspace_id}/documents", response_model=AdminDocumentsBulkDeleteResponse)
+def delete_all_workspace_documents(
+    workspace_id: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminDocumentsBulkDeleteResponse:
+    documents = db.execute(select(Document).where(Document.workspace_id == workspace_id)).scalars().all()
+    deleted_documents = 0
+    deleted_versions = 0
+    for document in documents:
+        docs_count, versions_count = _delete_document_with_artifacts(db, workspace_id=workspace_id, document=document)
+        deleted_documents += docs_count
+        deleted_versions += versions_count
+
+    db.commit()
+    return AdminDocumentsBulkDeleteResponse(
+        deleted_documents=deleted_documents,
+        deleted_versions=deleted_versions,
+    )
 
 
 @router.post("/workspaces/{workspace_id}/documents/upload", response_model=AdminDocumentUploadResponse, status_code=status.HTTP_201_CREATED)
@@ -313,6 +429,77 @@ def admin_index_folder(
         indexed=indexed,
         failed=failed,
     )
+
+
+@router.post("/workspaces/{workspace_id}/documents/reindex-all", response_model=AdminDocumentsBulkReindexResponse)
+def reindex_all_workspace_documents(
+    workspace_id: str,
+    background_tasks: BackgroundTasks,
+    db: Annotated[Session, Depends(get_db)],
+) -> AdminDocumentsBulkReindexResponse:
+    documents = db.execute(select(Document).where(Document.workspace_id == workspace_id)).scalars().all()
+    service = DocumentProcessingJobService(db)
+    queued_jobs = 0
+    skipped_documents = 0
+
+    for document in documents:
+        versions = sorted(document.versions, key=lambda version: version.version_number)
+        if not versions:
+            skipped_documents += 1
+            continue
+
+        latest = versions[-1]
+        if latest.is_invalidated:
+            skipped_documents += 1
+            continue
+
+        service.enqueue(
+            document_version_id=latest.id,
+            job_type="reindex_document_version",
+            reuse_succeeded=False,
+        )
+        queued_jobs += 1
+
+    db.commit()
+    if queued_jobs > 0:
+        background_tasks.add_task(_run_ingestion)
+
+    return AdminDocumentsBulkReindexResponse(
+        queued_jobs=queued_jobs,
+        skipped_documents=skipped_documents,
+    )
+
+
+@router.post("/workspaces/{workspace_id}/processing-jobs/{job_id}/retry", response_model=ProcessingJobResponse)
+def retry_processing_job(
+    workspace_id: str,
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    db: Annotated[Session, Depends(get_db)],
+) -> ProcessingJobResponse:
+    query = (
+        select(DocumentProcessingJob, Document)
+        .join(DocumentVersion, DocumentProcessingJob.document_version_id == DocumentVersion.id)
+        .join(Document, DocumentVersion.document_id == Document.id)
+        .where(DocumentProcessingJob.id == job_id)
+    )
+    row = db.execute(query).one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, {"code": "job_not_found", "message": "Processing job not found"})
+
+    job, document = row
+    if document.workspace_id != workspace_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, {"code": "job_not_found", "message": "Processing job not found"})
+
+    service = DocumentProcessingJobService(db)
+    try:
+        retried_job = service.retry_failed(job_id=job_id)
+    except ProcessingJobNotFound:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, {"code": "job_not_found", "message": "Processing job not found"}) from None
+
+    db.commit()
+    background_tasks.add_task(_run_ingestion)
+    return _processing_job_response(retried_job, document)
 
 
 def ensure_admin(db: Session, *, user_id: str, workspace_id: str) -> None:
