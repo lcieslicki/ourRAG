@@ -21,7 +21,9 @@ class IngestionJobRunner:
     def __init__(self, session: Session, handlers: dict[str, JobHandler] | None = None) -> None:
         self.session = session
         self.jobs = DocumentProcessingJobService(session)
-        self.handlers = handlers or self._default_handlers()
+        self.handlers = self._default_handlers()
+        if handlers:
+            self.handlers.update(handlers)
 
     def run_next(self) -> DocumentProcessingJob | None:
         job = self.jobs.next_queued()
