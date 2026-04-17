@@ -27,3 +27,12 @@ class DocumentVersionLifecycleResponse(BaseModel):
 
 class InvalidateDocumentVersionRequest(BaseModel):
     reason: str | None = None
+
+
+class DocumentVersionReindexResponse(BaseModel):
+    document_id: str
+    document_version_id: str
+    workspace_id: str
+    job_id: str
+    job_type: str
+    job_status: str

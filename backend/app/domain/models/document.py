@@ -69,3 +69,4 @@ class DocumentVersion(IdMixin, TimestampMixin, Base):
 
     document = relationship("Document", back_populates="versions")
     created_by_user = relationship("User", back_populates="document_versions_created")
+    processing_jobs = relationship("DocumentProcessingJob", back_populates="document_version")

@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.api.dependencies.db import get_db
 from app.infrastructure.storage.local import LocalFileStorage, get_local_file_storage
 from app.main import app
-from app.domain.models import Document, DocumentVersion
+from app.domain.models import Document, DocumentProcessingJob, DocumentVersion
 from tests.factories import create_document, create_membership, create_user, create_workspace
 
 
@@ -64,6 +64,9 @@ def test_upload_markdown_creates_document_version_and_stores_file(db_session, tm
     assert version.storage_path.startswith(
         f"workspaces/{workspace.id}/documents/{document.id}/versions/{version.id}/original/"
     )
+    job = db_session.query(DocumentProcessingJob).filter_by(document_version_id=version.id).one()
+    assert job.job_type == "parse_document"
+    assert job.status == "queued"
 
 
 def test_upload_new_version_for_existing_document_increments_version_number(db_session, tmp_path) -> None:

@@ -2,7 +2,15 @@ from itertools import count
 
 from sqlalchemy.orm import Session
 
-from app.domain.models import Conversation, Document, DocumentVersion, User, Workspace, WorkspaceMembership
+from app.domain.models import (
+    Conversation,
+    Document,
+    DocumentProcessingJob,
+    DocumentVersion,
+    User,
+    Workspace,
+    WorkspaceMembership,
+)
 
 _counter = count(1)
 
@@ -87,6 +95,25 @@ def create_document_version(
     session.add(version)
     session.flush()
     return version
+
+
+def create_processing_job(
+    session: Session,
+    *,
+    document_version: DocumentVersion,
+    job_type: str = "parse_document",
+    status: str = "queued",
+    attempts: int = 0,
+) -> DocumentProcessingJob:
+    job = DocumentProcessingJob(
+        document_version_id=document_version.id,
+        job_type=job_type,
+        status=status,
+        attempts=attempts,
+    )
+    session.add(job)
+    session.flush()
+    return job
 
 
 def create_conversation(session: Session, *, workspace: Workspace, user: User) -> Conversation:

@@ -1,10 +1,13 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.infrastructure.db.session import engine
+
+pytest.FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture()

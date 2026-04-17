@@ -3,6 +3,10 @@ import pytest
 from app.domain.parsers import MarkdownParser, ParserRegistry
 
 
+def fixture_bytes(name: str) -> bytes:
+    return (pytest.FIXTURES_DIR / "markdown" / name).read_bytes()
+
+
 def test_markdown_parser_normalizes_line_endings_and_preserves_headings() -> None:
     parser = MarkdownParser()
 
@@ -43,6 +47,33 @@ def test_markdown_parser_preserves_code_fences_as_code_blocks() -> None:
     assert [block.kind for block in parsed.blocks] == ["heading", "code", "paragraph"]
     assert parsed.blocks[1].text == '```json\n{"ok": true}\n```'
     assert parsed.blocks[1].section_path == ("API",)
+
+
+def test_markdown_parser_extracts_nested_headings_from_fixture() -> None:
+    parsed = MarkdownParser().parse(fixture_bytes("policy.md"))
+    heading_blocks = [block for block in parsed.blocks if block.kind == "heading"]
+
+    assert [block.heading for block in heading_blocks] == ["HR", "Approval", "Emergency Leave", "IT"]
+    assert [block.level for block in heading_blocks] == [1, 2, 3, 1]
+    assert heading_blocks[2].section_path == ("HR", "Approval", "Emergency Leave")
+    assert heading_blocks[3].section_path == ("IT",)
+
+
+def test_markdown_parser_handles_empty_markdown() -> None:
+    parsed = MarkdownParser().parse(fixture_bytes("empty.md"))
+
+    assert parsed.normalized_text == "\n"
+    assert parsed.blocks == ()
+
+
+def test_markdown_parser_handles_malformed_markdown_without_dropping_content() -> None:
+    parsed = MarkdownParser().parse(fixture_bytes("malformed.md"))
+
+    assert [block.kind for block in parsed.blocks] == ["heading", "paragraph", "heading", "list", "code"]
+    assert parsed.blocks[1].text == "This paragraph has **unclosed emphasis and [a broken link."
+    assert parsed.blocks[2].heading == "Skipped Level"
+    assert parsed.blocks[2].section_path == ("HR", "Skipped Level")
+    assert '{"unterminated": true}' in parsed.blocks[-1].text
 
 
 def test_parser_registry_selects_parser_by_extension() -> None:

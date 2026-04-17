@@ -4,6 +4,10 @@ from app.domain.chunking import ChunkingConfig, MarkdownChunkingService
 from app.domain.parsers import MarkdownParser
 
 
+def fixture_bytes(name: str) -> bytes:
+    return (pytest.FIXTURES_DIR / "markdown" / name).read_bytes()
+
+
 def parse_markdown(markdown: bytes):
     return MarkdownParser().parse(markdown)
 
@@ -79,3 +83,38 @@ def test_chunking_hard_splits_single_oversized_part_deterministically() -> None:
 def test_chunking_config_rejects_invalid_overlap() -> None:
     with pytest.raises(ValueError):
         ChunkingConfig(chunk_size=100, chunk_overlap=100)
+
+
+def test_chunking_preserves_semantic_order_from_fixture() -> None:
+    parsed = parse_markdown(fixture_bytes("chunk_order.md"))
+    service = MarkdownChunkingService(ChunkingConfig(chunk_size=65, chunk_overlap=0))
+
+    chunks = service.chunk(parsed, workspace_id="workspace-1", document_version_id="version-1", language="pl")
+
+    chunk_text = "\n".join(chunk.text for chunk in chunks)
+    assert chunk_text.index("Alpha first paragraph.") < chunk_text.index("Alpha second paragraph.")
+    assert chunk_text.index("Alpha second paragraph.") < chunk_text.index("Beta first paragraph.")
+    assert chunk_text.index("Beta second paragraph.") < chunk_text.index("Gamma final paragraph.")
+    assert [chunk.chunk_index for chunk in chunks] == list(range(len(chunks)))
+
+
+def test_chunking_generates_section_paths_from_nested_headings() -> None:
+    parsed = parse_markdown(fixture_bytes("policy.md"))
+    service = MarkdownChunkingService(ChunkingConfig(chunk_size=90, chunk_overlap=0))
+
+    chunks = service.chunk(parsed, workspace_id="workspace-1", document_version_id="version-1", language="pl")
+
+    assert ("HR",) in [chunk.section_path for chunk in chunks]
+    assert ("HR", "Approval") in [chunk.section_path for chunk in chunks]
+    assert ("HR", "Approval", "Emergency Leave") in [chunk.section_path for chunk in chunks]
+    assert ("IT",) in [chunk.section_path for chunk in chunks]
+
+
+def test_chunking_output_is_deterministic_for_same_input_and_config() -> None:
+    parsed = parse_markdown(fixture_bytes("policy.md"))
+    service = MarkdownChunkingService(ChunkingConfig(chunk_size=75, chunk_overlap=12, strategy_version="test_v1"))
+
+    first = service.chunk(parsed, workspace_id="workspace-1", document_version_id="version-1", language="pl")
+    second = service.chunk(parsed, workspace_id="workspace-1", document_version_id="version-1", language="pl")
+
+    assert first == second

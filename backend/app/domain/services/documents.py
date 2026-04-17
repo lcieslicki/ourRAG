@@ -13,9 +13,10 @@ from app.domain.errors import (
     DocumentVersionNotReady,
     UnsupportedFileType,
 )
-from app.domain.models import Audit, Document, DocumentVersion
+from app.domain.models import Audit, Document, DocumentProcessingJob, DocumentVersion
 from app.domain.models.common import new_id
 from app.domain.services.access import WorkspaceAccessService
+from app.domain.services.processing_jobs import DocumentProcessingJobService
 from app.infrastructure.storage.base import StoredFile, Storage
 
 SUPPORTED_MARKDOWN_EXTENSIONS = {".md", ".markdown"}
@@ -90,6 +91,7 @@ class DocumentService:
         )
         self.session.add(version)
         self.session.flush()
+        DocumentProcessingJobService(self.session).enqueue(document_version_id=version.id, job_type="parse_document")
 
         return DocumentUploadResult(document=document, version=version, stored_file=stored_file)
 
@@ -156,6 +158,34 @@ class DocumentService:
         )
         self.session.flush()
         return version
+
+    def request_reindex_version(self, *, user_id: str, document_id: str, version_id: str) -> DocumentProcessingJob:
+        document, version = self._resolve_document_version_for_admin_action(
+            user_id=user_id,
+            document_id=document_id,
+            version_id=version_id,
+        )
+        if version.is_invalidated:
+            raise DocumentVersionInvalidated("Invalidated document versions cannot be reindexed.")
+
+        job = DocumentProcessingJobService(self.session).enqueue(
+            document_version_id=version.id,
+            job_type="reindex_document_version",
+            reuse_succeeded=False,
+        )
+        self._record_audit(
+            workspace_id=document.workspace_id,
+            user_id=user_id,
+            event_type="document_version_reindex_requested",
+            entity_id=version.id,
+            payload={
+                "document_id": document.id,
+                "version_number": version.version_number,
+                "job_id": job.id,
+            },
+        )
+        self.session.flush()
+        return job
 
     def _resolve_document_version_for_admin_action(
         self,
