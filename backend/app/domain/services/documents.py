@@ -36,6 +36,32 @@ class DocumentService:
         self.storage = storage
         self.access = WorkspaceAccessService(session)
 
+    def list_documents(self, *, user_id: str, workspace_id: str) -> list[Document]:
+        self.access.ensure_workspace_role(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            allowed_roles={"owner", "admin"},
+        )
+        return list(
+            self.session.scalars(
+                select(Document)
+                .where(Document.workspace_id == workspace_id)
+                .order_by(Document.updated_at.desc(), Document.created_at.desc())
+            )
+        )
+
+    def get_document_detail(self, *, user_id: str, document_id: str) -> Document:
+        document = self.session.get(Document, document_id)
+        if document is None:
+            raise DocumentAccessDenied("Document not found.")
+
+        self.access.ensure_workspace_role(
+            user_id=user_id,
+            workspace_id=document.workspace_id,
+            allowed_roles={"owner", "admin"},
+        )
+        return document
+
     def upload_markdown_version(
         self,
         *,
