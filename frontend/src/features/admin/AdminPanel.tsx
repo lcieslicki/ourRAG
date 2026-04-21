@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import type {
   AdminDocumentListItem,
   AdminProcessingJob,
@@ -430,6 +430,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
   const [uploading, setUploading] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [warnings, setWarnings] = useState<{ file_name: string; error: string }[]>([]);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [processingJobs, setProcessingJobs] = useState<AdminProcessingJob[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
@@ -478,8 +479,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
     }
   }
 
-  async function handleUpload(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleUpload() {
     if (!files?.length || !userId) return;
     setUploading(true);
     setWarnings([]);
@@ -487,7 +487,9 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
       const res = await apiClient.adminUploadDocuments(workspace.id, { userId, category, files });
       setWarnings(res.failed);
       setFiles(null);
-      (e.target as HTMLFormElement).reset();
+      if (uploadInputRef.current) {
+        uploadInputRef.current.value = "";
+      }
       await loadDocuments();
       await loadProcessingJobs();
     } catch (err) {
@@ -606,6 +608,20 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
     }
   }
 
+  function indexingBadge(document: AdminDocumentListItem): { label: string; color: string } {
+    const status = document.latest_processing_status;
+    if (status === "ready" && document.indexed_at) {
+      return { label: "OK", color: "#1f7a1f" };
+    }
+    if (status === "failed") {
+      return { label: "Błąd", color: "#b42318" };
+    }
+    if (status === "pending" || status === "processing") {
+      return { label: "W trakcie", color: "#9a6700" };
+    }
+    return { label: "Nieznany", color: "#475467" };
+  }
+
   return (
     <div className="admin-members-block">
       <h3>Dokumenty: {workspace.name}</h3>
@@ -657,6 +673,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8 }}>
           <button
             className="admin-btn-small"
+            type="button"
             onClick={() => void handleIndexFolder()}
             disabled={indexing || !userId || !workspace.data_folder}
             title={!workspace.data_folder ? "Najpierw skonfiguruj folder danych" : undefined}
@@ -664,20 +681,24 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
             {indexing ? "Indeksowanie…" : `Indeksuj folder${workspace.data_folder ? ` (${workspace.data_folder})` : ""}`}
           </button>
 
-          <form style={{ display: "contents" }} onSubmit={(e) => void handleUpload(e)}>
-            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input
-                type="file"
-                accept=".md"
-                multiple
-                style={{ fontSize: "0.85em" }}
-                onChange={(e) => setFiles(e.target.files)}
-              />
-            </label>
-            <button className="admin-btn-small" type="submit" disabled={uploading || !userId || !files?.length}>
-              {uploading ? "Przesyłanie…" : "Prześlij pliki .md"}
-            </button>
-          </form>
+          <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept=".md"
+              multiple
+              style={{ fontSize: "0.85em" }}
+              onChange={(e) => setFiles(e.target.files)}
+            />
+          </label>
+          <button
+            className="admin-btn-small"
+            type="button"
+            onClick={() => void handleUpload()}
+            disabled={uploading || !userId || !files?.length}
+          >
+            {uploading ? "Przesyłanie…" : "Prześlij pliki .md"}
+          </button>
         </div>
 
         {warnings.length > 0 && (
@@ -714,20 +735,58 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
         ) : (
           <table className="admin-table">
             <thead>
-              <tr><th>Tytuł</th><th>Kategoria</th><th>Status</th><th>Wersje</th><th>Akcje</th></tr>
+              <tr><th>Tytuł</th><th>Status indeksacji</th><th>Dane zasilające model</th><th>Wersje</th><th>Akcje</th></tr>
             </thead>
             <tbody>
-              {documents.map((d) => (
+              {documents.map((d) => {
+                const badge = indexingBadge(d);
+                return (
                 <tr key={d.id}>
-                  <td>{d.title}</td>
-                  <td>{d.category}</td>
                   <td>
-                    <code>{d.latest_processing_status ?? "—"}</code>
+                    <div>{d.title}</div>
+                    <div className="muted" style={{ marginTop: 4, fontSize: "0.82em" }}>
+                      Kategoria: <code>{d.category || "—"}</code>
+                    </div>
+                  </td>
+                  <td>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        border: `1px solid ${badge.color}`,
+                        color: badge.color,
+                        borderRadius: 999,
+                        padding: "2px 10px",
+                        fontWeight: 600,
+                        fontSize: "0.82em",
+                      }}
+                    >
+                      {badge.label}
+                    </span>
+                    <div className="muted" style={{ marginTop: 4, fontSize: "0.82em" }}>
+                      pipeline: <code>{d.latest_processing_status ?? "—"}</code>
+                    </div>
                     {d.latest_error_message && (
                       <div className="muted" style={{ marginTop: 4, maxWidth: 420, whiteSpace: "pre-wrap" }}>
                         <strong>{d.latest_error_job_type ?? "error"}:</strong> {d.latest_error_message}
                       </div>
                     )}
+                  </td>
+                  <td>
+                    <div className="muted" style={{ fontSize: "0.82em" }}>
+                      chunks: <code>{d.chunk_count ?? 0}</code>, vectors(Qdrant): <code>{d.qdrant_vector_count ?? "?"}</code>
+                    </div>
+                    <div className="muted" style={{ marginTop: 4, fontSize: "0.82em" }}>
+                      embedding: <code>{d.embedding_model_name ?? "—"}</code>{d.embedding_model_version ? ` (${d.embedding_model_version})` : ""}
+                    </div>
+                    <div className="muted" style={{ marginTop: 4, fontSize: "0.82em" }}>
+                      język: <code>{d.language ?? "—"}</code>, indeksacja: <code>{d.indexed_at ? new Date(d.indexed_at).toLocaleString() : "—"}</code>
+                    </div>
+                    <div className="muted" style={{ marginTop: 4, fontSize: "0.82em" }}>
+                      aktywna: <code>{String(d.is_active ?? false)}</code>, invalidated: <code>{String(d.is_invalidated ?? false)}</code>
+                    </div>
+                    <div className="muted" style={{ marginTop: 4, fontSize: "0.82em" }}>
+                      tagi: {d.tags.length > 0 ? d.tags.map((tag) => <code key={`${d.id}-${tag}`} style={{ marginRight: 6 }}>{tag}</code>) : <code>—</code>}
+                    </div>
                   </td>
                   <td>{d.version_count}</td>
                   <td style={{ display: "flex", gap: 8 }}>
@@ -747,7 +806,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
                     </button>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         )}

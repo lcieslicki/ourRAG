@@ -69,7 +69,7 @@ class DocumentService:
         workspace_id: str,
         file: UploadFile,
         title: str,
-        category: str,
+        category: str | None = None,
         document_id: str | None = None,
         tags: str | None = None,
     ) -> DocumentUploadResult:
@@ -79,18 +79,20 @@ class DocumentService:
             allowed_roles={"owner", "admin"},
         )
         self._validate_markdown_file(file)
+        file_name = self._safe_file_name(file.filename or "document.md")
+        resolved_category = self._category_from_file_name(file.filename or file_name)
 
         document = self._resolve_document(
             user_id=user_id,
             workspace_id=workspace_id,
             title=title,
-            category=category,
+            category=resolved_category,
             document_id=document_id,
             tags=tags,
         )
+        document.category = resolved_category
         version_number = self._next_version_number(document.id)
         version_id = new_id()
-        file_name = self._safe_file_name(file.filename or "document.md")
         storage_path = self.storage.original_file_path(
             workspace_id=workspace_id,
             document_id=document.id,
@@ -334,3 +336,13 @@ class DocumentService:
 
         if file.content_type and file.content_type not in MARKDOWN_MIME_TYPES:
             raise UnsupportedFileType("Only Markdown files are supported.")
+
+    @staticmethod
+    def _category_from_file_name(file_name: str) -> str:
+        stem = Path(file_name).stem.strip()
+        if not stem:
+            return "UNCATEGORIZED"
+        prefix = stem.split("_", 1)[0].strip()
+        if not prefix:
+            return "UNCATEGORIZED"
+        return prefix.upper()

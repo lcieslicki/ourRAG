@@ -174,3 +174,78 @@ def test_admin_settings_rejects_member_role(db_session, tmp_path) -> None:
 
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "workspace_access_denied"
+
+
+def test_admin_can_get_user_and_workspace(db_session, tmp_path) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        user_response = client.get(f"/api/admin/users/{user.id}")
+        workspace_response = client.get(f"/api/admin/workspaces/{workspace.id}")
+    finally:
+        clear_overrides()
+
+    assert user_response.status_code == 200
+    assert user_response.json()["id"] == user.id
+    assert workspace_response.status_code == 200
+    assert workspace_response.json()["id"] == workspace.id
+
+
+def test_delete_user_rejects_when_user_has_membership(db_session, tmp_path) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    create_membership(db_session, user=user, workspace=workspace, role="member")
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.delete(f"/api/admin/users/{user.id}")
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "user_has_memberships"
+
+
+def test_delete_user_rejects_when_user_has_created_documents(db_session, tmp_path) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    create_document(db_session, workspace=workspace, created_by=user)
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.delete(f"/api/admin/users/{user.id}")
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "user_has_documents"
+
+
+def test_admin_can_delete_user_without_dependencies(db_session, tmp_path) -> None:
+    user = create_user(db_session)
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.delete(f"/api/admin/users/{user.id}")
+        read_after_delete = client.get(f"/api/admin/users/{user.id}")
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 204
+    assert read_after_delete.status_code == 404
+
+
+def test_admin_can_delete_workspace(db_session, tmp_path) -> None:
+    workspace = create_workspace(db_session)
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.delete(f"/api/admin/workspaces/{workspace.id}")
+        read_after_delete = client.get(f"/api/admin/workspaces/{workspace.id}")
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 204
+    assert read_after_delete.status_code == 404

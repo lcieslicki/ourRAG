@@ -144,11 +144,14 @@ def test_build_retrieval_filter_has_mandatory_filters_only_by_default() -> None:
 
 def test_ensure_collection_uses_configured_collection_name() -> None:
     requests: list[httpx.Request] = []
-    client = httpx.Client(
-        transport=httpx.MockTransport(
-            lambda request: requests.append(request) or httpx.Response(200, json={"result": True})
-        )
-    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.method == "GET":
+            return httpx.Response(404, json={"status": {"error": "Not found"}})
+        return httpx.Response(200, json={"result": True})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
     index = QdrantVectorIndex(
         base_url="http://qdrant:6333",
         collection="document_chunks",
@@ -158,6 +161,8 @@ def test_ensure_collection_uses_configured_collection_name() -> None:
 
     index.ensure_collection(vector_size=768)
 
-    assert requests[0].method == "PUT"
+    assert requests[0].method == "GET"
     assert requests[0].url == "http://qdrant:6333/collections/document_chunks"
-    assert requests[0].read() == b'{"vectors":{"size":768,"distance":"Cosine"}}'
+    assert requests[1].method == "PUT"
+    assert requests[1].url == "http://qdrant:6333/collections/document_chunks"
+    assert requests[1].read() == b'{"vectors":{"size":768,"distance":"Cosine"}}'

@@ -87,6 +87,9 @@ class OllamaEmbeddingService:
 
         try:
             response = client.post(f"{self.base_url}/api/embed", json=payload)
+            if response.status_code == 404:
+                return self._request_legacy_embeddings(client=client, texts=texts)
+
             response.raise_for_status()
         except httpx.HTTPError as exc:
             raise EmbeddingProviderError(f"Embedding provider request failed: {exc}") from exc
@@ -95,6 +98,22 @@ class OllamaEmbeddingService:
                 client.close()
 
         return parse_ollama_embedding_response(response.json())
+
+    def _request_legacy_embeddings(self, *, client: httpx.Client, texts: list[str]) -> list[list[float]]:
+        embeddings: list[list[float]] = []
+
+        for text in texts:
+            response = client.post(
+                f"{self.base_url}/api/embeddings",
+                json={"model": self.model_name, "prompt": text},
+            )
+            response.raise_for_status()
+            parsed = parse_ollama_embedding_response(response.json())
+            if len(parsed) != 1:
+                raise EmbeddingProviderError("Legacy embedding provider returned an unexpected number of vectors.")
+            embeddings.append(parsed[0])
+
+        return embeddings
 
     def _metadata(self, vector: list[float]) -> EmbeddingMetadata:
         return EmbeddingMetadata(

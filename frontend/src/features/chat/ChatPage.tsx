@@ -1,6 +1,6 @@
 import { AssistantThread } from "./components/AssistantThread";
 import { SourcesPanel } from "./components/SourcesPanel";
-import type { ChatSource } from "../../lib/api/types";
+import type { ChatProcessingLogEvent, ChatSource } from "../../lib/api/types";
 import type { ReactNode } from "react";
 
 type ChatPageProps = {
@@ -11,6 +11,7 @@ type ChatPageProps = {
   isSending: boolean;
   scopeFilters: ReactNode;
   sources: readonly ChatSource[];
+  chatLogsByMessage: Record<string, ChatProcessingLogEvent[]>;
 };
 
 export function ChatPage({
@@ -21,6 +22,7 @@ export function ChatPage({
   isSending,
   scopeFilters,
   sources,
+  chatLogsByMessage,
 }: ChatPageProps) {
   return (
     <section className="chat-page" aria-label="Chat">
@@ -44,7 +46,7 @@ export function ChatPage({
       {isLoadingConversation ? <div className="status-banner">Loading conversation...</div> : null}
       {isSending ? <div className="status-banner">Waiting for backend response...</div> : null}
       <div className="chat-content">
-        <AssistantThread />
+        <AssistantThread chatLogsByMessage={chatLogsByMessage} />
         <aside className="chat-aside">
           {scopeFilters}
           <SourcesPanel sources={sources} />

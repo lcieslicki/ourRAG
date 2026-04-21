@@ -2,12 +2,14 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 import { App } from "../src/App";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  localStorage.clear();
 });
 
 describe("MVP chat UI", () => {
@@ -23,11 +25,16 @@ describe("MVP chat UI", () => {
       documents: [],
     });
 
-    render(<App />);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
     await chooseWorkspace("user-1", "workspace-1");
 
     expect(await screen.findByRole("button", { name: /Vacation policy active/i })).toBeInTheDocument();
-    expect(screen.getByText("Workspace").nextElementSibling).toHaveTextContent("workspace-1");
+    const chatSection = screen.getByRole("region", { name: "Chat" });
+    expect(within(chatSection).getByText("workspace-1")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/conversations?workspace_id=workspace-1"),
       expect.objectContaining({
@@ -56,7 +63,11 @@ describe("MVP chat UI", () => {
       },
     });
 
-    render(<App />);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
     await chooseWorkspace("user-1", "workspace-1");
     await userEvent.click(await screen.findByRole("button", { name: /Benefits active/i }));
 
@@ -97,7 +108,11 @@ describe("MVP chat UI", () => {
       },
     });
 
-    render(<App />);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
     await chooseWorkspace("user-1", "workspace-1");
     await userEvent.click(await screen.findByRole("button", { name: /HR active/i }));
 
@@ -119,7 +134,11 @@ describe("MVP chat UI", () => {
       chatResponse: () => chatResponse("conv-1", "Scope acknowledged."),
     });
 
-    render(<App />);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
     await chooseWorkspace("user-1", "workspace-1");
     await userEvent.click(await screen.findByLabelText("Category"));
     await userEvent.selectOptions(screen.getByLabelText("Category", { selector: "select" }), "HR");
@@ -155,17 +174,73 @@ describe("MVP chat UI", () => {
       documents: [],
     });
 
-    render(<App />);
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
     await chooseWorkspace("user-1", "workspace-1");
 
     expect(await screen.findByText(/API request failed: 403/i)).toBeInTheDocument();
     expect(screen.getByText(/workspace_access_denied/i)).toBeInTheDocument();
   });
+
+  it("renders collapsible processing logs under user question", async () => {
+    mockApi({
+      conversations: [conversation({ id: "conv-1", workspace_id: "workspace-1", title: "Debug run" })],
+      documents: [],
+      conversationDetail: {
+        ...conversation({ id: "conv-1", workspace_id: "workspace-1", title: "Debug run" }),
+        summary: null,
+        messages: [
+          message({
+            id: "msg-user-1",
+            conversation_id: "conv-1",
+            workspace_id: "workspace-1",
+            role: "user",
+            content: "How do vacations work?",
+            response_metadata: {
+              processing_logs: [
+                {
+                  event_id: "event-1",
+                  conversation_id: "conv-1",
+                  workspace_id: "workspace-1",
+                  message_id: "msg-user-1",
+                  category: "retrieval",
+                  stage: "completed",
+                  status: "completed",
+                  event: "retrieval.completed",
+                  timestamp: "2026-04-21T08:00:00Z",
+                  payload: { result_count: 1 },
+                },
+              ],
+            },
+          }),
+        ],
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+    await chooseWorkspace("user-1", "workspace-1");
+    await userEvent.click(await screen.findByRole("button", { name: /Debug run active/i }));
+
+    expect(await screen.findByText("Question")).toBeInTheDocument();
+    expect(screen.getByText(/Processing logs \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText("completed")).toBeInTheDocument();
+    expect(screen.getByText(/result_count/i)).toBeInTheDocument();
+  });
 });
 
 async function chooseWorkspace(userId: string, workspaceId: string) {
-  await userEvent.type(screen.getByLabelText("User ID"), userId);
-  await userEvent.type(screen.getByLabelText("Workspace ID"), workspaceId);
+  await screen.findByRole("option", { name: /user-1@example\.test/i });
+  await userEvent.selectOptions(screen.getByLabelText("Użytkownik"), userId);
+  await screen.findByRole("option", { name: /Workspace One/i });
+  await userEvent.selectOptions(screen.getByLabelText("Workspace"), workspaceId);
+  await userEvent.click(screen.getByRole("button", { name: "Otwórz workspace" }));
 }
 
 async function sendChatMessage(text: string) {
@@ -182,6 +257,28 @@ function mockApi(options: {
 }) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+
+    if (url.includes("/api/admin/users")) {
+      return jsonResponse([
+        {
+          id: "user-1",
+          email: "user-1@example.test",
+          display_name: "User One",
+          status: "active",
+          created_at: "2026-04-17T08:00:00Z",
+        },
+      ]);
+    }
+
+    if (url.includes("/api/workspaces")) {
+      return jsonResponse([
+        {
+          id: "workspace-1",
+          name: "Workspace One",
+          role: "member",
+        },
+      ]);
+    }
 
     if (url.includes("/api/conversations?")) {
       return jsonResponse(options.conversations, options.conversationsStatus ?? 200);

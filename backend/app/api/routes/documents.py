@@ -75,12 +75,12 @@ def get_document(
 def upload_document(
     workspace_id: Annotated[str, Form()],
     title: Annotated[str, Form()],
-    category: Annotated[str, Form()],
     file: Annotated[UploadFile, File()],
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
     storage: Annotated[LocalFileStorage, Depends(get_local_file_storage)],
     document_id: Annotated[str | None, Form()] = None,
+    category: Annotated[str | None, Form()] = None,
     tags: Annotated[str | None, Form()] = None,
 ) -> DocumentUploadResponse:
     service = DocumentService(db, storage)

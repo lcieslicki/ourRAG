@@ -1,4 +1,6 @@
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
+import pytest
 
 from app.api.dependencies.db import get_db
 from app.api.dependencies.llm import get_generation_gateway
@@ -24,6 +26,23 @@ class FakeGateway:
             finish_reason="stop",
             metadata={},
         )
+
+
+class HookedGateway(FakeGateway):
+    def generate(self, request):
+        hook = request.metadata.get("debug_hook")
+        if callable(hook):
+            hook(
+                "llm.completed",
+                {
+                    "provider": "fake",
+                    "model": "fake-bielik",
+                    "finish_reason": "stop",
+                    "metadata": {},
+                    "text_preview": "Assistant answer from fake gateway.",
+                },
+            )
+        return super().generate(request)
 
 
 class FakeEmbeddingService:
@@ -58,9 +77,11 @@ class FakeVectorIndex:
 
     def query(self, query):
         self.queries.append(query)
+        if callable(getattr(query, "debug_hook", None)):
+            query.debug_hook("retrieval.qdrant_query_started", {"top_k": query.top_k})
         if self.workspace_id is None:
             return []
-        return [
+        results = [
             VectorIndexResult(
                 id="chunk-1",
                 score=0.92,
@@ -78,6 +99,12 @@ class FakeVectorIndex:
                 },
             )
         ]
+        if callable(getattr(query, "debug_hook", None)):
+            query.debug_hook(
+                "retrieval.qdrant_query_completed",
+                {"result_count": len(results), "results": [item.payload for item in results]},
+            )
+        return results
 
 
 def client_with_dependencies(
@@ -498,3 +525,62 @@ def test_chat_rejects_workspace_mismatch(db_session) -> None:
     assert response.json()["detail"]["code"] == "conversation_not_found"
     assert gateway.requests == []
     assert db_session.query(Message).filter_by(conversation_id=conversation.id).count() == 0
+
+
+def test_chat_websocket_logs_stream_progress_for_conversation(db_session) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    create_membership(db_session, user=user, workspace=workspace, role="member")
+    conversation = create_conversation(db_session, workspace=workspace, user=user)
+    client = client_with_dependencies(
+        db_session,
+        gateway=HookedGateway(),
+        embedding_service=FakeEmbeddingService(),
+        vector_index=FakeVectorIndex(workspace_id=workspace.id),
+    )
+
+    try:
+        with client.websocket_connect(f"/api/chat/ws/{conversation.id}?user_id={user.id}") as ws:
+            response = client.post(
+                "/api/chat",
+                headers={"X-User-Id": user.id},
+                json={
+                    "workspace_id": workspace.id,
+                    "conversation_id": conversation.id,
+                    "message": "How do I request vacation?",
+                },
+            )
+            assert response.status_code == 200
+
+            received_events: list[dict] = []
+            for _ in range(30):
+                event = ws.receive_json()
+                received_events.append(event)
+                if event.get("event") == "request.completed":
+                    break
+    finally:
+        clear_overrides()
+
+    event_names = {event["event"] for event in received_events}
+    assert "request.started" in event_names
+    assert "retrieval.embedding_started" in event_names
+    assert "retrieval.qdrant_query_completed" in event_names
+    assert "llm.completed" in event_names
+    assert "persistence.user_message_saved" in event_names
+    assert "request.completed" in event_names
+
+
+def test_chat_websocket_rejects_unauthorized_subscriber(db_session) -> None:
+    owner = create_user(db_session, email_prefix="owner")
+    intruder = create_user(db_session, email_prefix="intruder")
+    workspace = create_workspace(db_session)
+    create_membership(db_session, user=owner, workspace=workspace, role="member")
+    conversation = create_conversation(db_session, workspace=workspace, user=owner)
+    client = client_with_dependencies(db_session)
+
+    try:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(f"/api/chat/ws/{conversation.id}?user_id={intruder.id}"):
+                pass
+    finally:
+        clear_overrides()

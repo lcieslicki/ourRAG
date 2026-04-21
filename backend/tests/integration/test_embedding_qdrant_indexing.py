@@ -106,7 +106,7 @@ def test_worker_generates_chunk_embeddings_and_indexes_into_qdrant(db_session, t
     assert payload["is_active"] is True
 
 
-def test_inactive_version_is_indexed_but_excluded_by_standard_active_filter(db_session, tmp_path, qdrant_index) -> None:
+def test_processed_version_is_indexed_as_active_for_standard_filter(db_session, tmp_path, qdrant_index) -> None:
     workspace, _, version, storage = prepare_uploaded_markdown(db_session, tmp_path, is_active=False)
     DocumentProcessingJobService(db_session).enqueue_upload_pipeline(document_version_id=version.id)
 
@@ -118,14 +118,13 @@ def test_inactive_version_is_indexed_but_excluded_by_standard_active_filter(db_s
     ).run_until_idle()
 
     assert version.processing_status == "ready"
-    assert qdrant_index.query(VectorIndexQuery(workspace_id=workspace.id, vector=[1.0, 0.25], top_k=5)) == []
-
-    inactive_results = wait_for_results(
+    assert version.is_active is True
+    active_results = wait_for_results(
         qdrant_index,
-        VectorIndexQuery(workspace_id=workspace.id, vector=[1.0, 0.25], top_k=5, active_only=False),
+        VectorIndexQuery(workspace_id=workspace.id, vector=[1.0, 0.25], top_k=5),
         min_count=1,
     )
-    assert inactive_results[0].payload["is_active"] is False
+    assert active_results[0].payload["is_active"] is True
 
 
 def test_qdrant_delete_and_replace_document_version_vectors(qdrant_index) -> None:

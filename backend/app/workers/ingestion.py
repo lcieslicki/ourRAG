@@ -236,6 +236,8 @@ class IngestionJobRunner:
         version = self._version_for(job)
         logger.info("ingestion.stage.index.start job_id=%s version_id=%s", job.id, version.id)
         self._ensure_previous_stages_succeeded(job)
+        for candidate in version.document.versions:
+            candidate.is_active = candidate.id == version.id
         if self.storage is not None and self.vector_index is not None:
             self._index_document_version(version)
         version.processing_status = "ready"

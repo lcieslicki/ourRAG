@@ -18,6 +18,12 @@ make infra-logs
 make infra-down
 ```
 
+After stack startup, pull the generation model configured in `OLLAMA_MODEL` (default: `SpeakLeash/bielik-11b-v2.3-instruct:Q8_0`):
+
+```sh
+docker compose --env-file .env.example --env-file .env.docker.example --env-file .env --env-file .env.docker -f infra/docker/compose.local.yml exec ollama ollama pull SpeakLeash/bielik-11b-v2.3-instruct:Q8_0
+```
+
 All backend and frontend project commands should run inside containers. This keeps dependency versions, service hostnames, and environment loading aligned with the Docker stack.
 
 Backend examples:
@@ -57,3 +63,5 @@ Compose loads checked-in example defaults first, then optional local override fi
 ```
 
 The top-level Makefile passes these files to Docker Compose in that order, so later files override earlier values.
+
+If port `11434` is already in use on the host (for example by a local Ollama process), set `OLLAMA_HOST_PORT=11435` in `.env.docker`. Keep `OLLAMA_PORT=11434` unchanged so backend-to-ollama communication inside Docker still works.

@@ -1,4 +1,5 @@
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -17,12 +18,13 @@ from app.domain.services.conversations import ConversationService
 from app.domain.services.memory import ConversationMemoryService
 from app.domain.services.retrieval import RetrievalScope, RetrievalService, RetrievedChunk, VectorIndexService
 from app.infrastructure.llm import OllamaGatewayError
+from app.infrastructure.realtime import ChatProcessingEvent, chat_log_manager
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
 @router.post("", response_model=ChatResponse)
-def send_chat_message(
+async def send_chat_message(
     payload: ChatRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
@@ -32,20 +34,79 @@ def send_chat_message(
 ) -> ChatResponse:
     conversation_service = ConversationService(db)
     settings = get_settings()
+    active_user_message_id: str | None = None
+    active_workspace_id = payload.workspace_id
+
+    async def emit(category: str, stage: str, status: str, event_payload: dict[str, Any]) -> None:
+        await chat_log_manager.publish(
+            ChatProcessingEvent(
+                conversation_id=payload.conversation_id,
+                workspace_id=active_workspace_id,
+                message_id=active_user_message_id,
+                category=category,
+                stage=stage,
+                status=status,
+                payload=event_payload,
+                timestamp=datetime.now(UTC).isoformat(),
+            )
+        )
+
+    def debug_hook(event_name: str, event_payload: dict[str, Any]) -> None:
+        category, stage = event_name.split(".", 1) if "." in event_name else ("request", event_name)
+        if stage.endswith("completed"):
+            event_status = "completed"
+        elif stage.endswith("failed"):
+            event_status = "failed"
+        else:
+            event_status = "started"
+        event = ChatProcessingEvent(
+            conversation_id=payload.conversation_id,
+            workspace_id=active_workspace_id,
+            message_id=active_user_message_id,
+            category=category,
+            stage=stage,
+            status=event_status,
+            payload=event_payload,
+            timestamp=datetime.now(UTC).isoformat(),
+        )
+        import asyncio
+
+        asyncio.create_task(chat_log_manager.publish(event))
+
     try:
+        await emit("request", "started", "started", {"message": payload.message, "scope": payload.scope})
         conversation = conversation_service.get_conversation(
             user_id=current_user.id,
             conversation_id=payload.conversation_id,
         )
+        active_workspace_id = conversation.workspace_id
         if conversation.workspace_id != payload.workspace_id:
             raise ConversationAccessDenied("Conversation does not belong to the requested workspace.")
+        await emit(
+            "request",
+            "conversation_validated",
+            "completed",
+            {"conversation_id": conversation.id, "workspace_id": conversation.workspace_id},
+        )
 
         retrieval_scope = parse_retrieval_scope(payload.scope if payload.scope is not None else conversation.selected_scope_json)
+        await emit(
+            "request",
+            "scope_resolved",
+            "completed",
+            {
+                "category": retrieval_scope.category,
+                "document_ids": list(retrieval_scope.document_ids),
+                "language": retrieval_scope.language,
+            },
+        )
+        await emit("retrieval", "started", "started", {"query": payload.message})
         retrieval = RetrievalService(
             session=db,
             embedding_service=embedding_service,
             vector_index=vector_index,
             settings=settings,
+            debug_hook=debug_hook,
         ).retrieve(
             user_id=current_user.id,
             workspace_id=payload.workspace_id,
@@ -58,12 +119,32 @@ def send_chat_message(
             conversation_id=payload.conversation_id,
             content=payload.message,
         )
+        active_user_message_id = user_message.id
+        await emit(
+            "persistence",
+            "user_message_saved",
+            "completed",
+            {"message_id": user_message.id, "content": user_message.content_text},
+        )
+        await emit("memory", "started", "started", {})
         memory = ConversationMemoryService(session=db, settings=settings).build_memory_package(
             user_id=current_user.id,
             workspace_id=payload.workspace_id,
             conversation_id=payload.conversation_id,
             exclude_message_ids={user_message.id},
         )
+        await emit(
+            "memory",
+            "completed",
+            "completed",
+            {
+                "recent_messages": [
+                    {"role": item.role, "content": item.content} for item in memory.prompt_memory.recent_messages
+                ],
+                "summary": memory.prompt_memory.summary,
+            },
+        )
+        await emit("prompt", "started", "started", {})
         prompt = PromptBuilder().build(
             PromptBuildInput(
                 workspace_name=conversation.workspace.name if conversation.workspace else None,
@@ -72,7 +153,19 @@ def send_chat_message(
                 retrieved_chunks=retrieval.chunks,
             )
         )
-        generation = llm_gateway.generate(GenerationRequest(messages=prompt.messages))
+        await emit(
+            "prompt",
+            "completed",
+            "completed",
+            {
+                "template_version": prompt.template_version,
+                "has_retrieval_context": prompt.has_retrieval_context,
+                "messages": [{"role": message.role, "content": message.content} for message in prompt.messages],
+            },
+        )
+        generation = llm_gateway.generate(
+            GenerationRequest(messages=prompt.messages, metadata={"debug_hook": debug_hook})
+        )
         sources = sources_from_chunks(retrieval.chunks)
         assistant_message = conversation_service.append_assistant_message(
             user_id=current_user.id,
@@ -88,27 +181,42 @@ def send_chat_message(
                 "sources": sources,
             },
         )
+        await emit(
+            "persistence",
+            "assistant_message_saved",
+            "completed",
+            {
+                "message_id": assistant_message.id,
+                "content": assistant_message.content_text,
+                "sources": sources,
+            },
+        )
         db.commit()
+        await emit("request", "completed", "completed", {"assistant_message_id": assistant_message.id})
     except ValueError as exc:
         db.rollback()
+        await emit("error", "request_failed", "failed", {"code": "invalid_message", "message": str(exc)})
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "invalid_message", "message": str(exc)},
         ) from exc
     except DocumentAccessDenied as exc:
         db.rollback()
+        await emit("error", "request_failed", "failed", {"code": "invalid_scope_filter", "message": str(exc)})
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "invalid_scope_filter", "message": str(exc)},
         ) from exc
     except (ConversationAccessDenied, WorkspaceAccessDenied) as exc:
         db.rollback()
+        await emit("error", "request_failed", "failed", {"code": "conversation_not_found", "message": str(exc)})
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "conversation_not_found", "message": str(exc)},
         ) from exc
     except OllamaGatewayError as exc:
         db.rollback()
+        await emit("error", "request_failed", "failed", {"code": "llm_timeout", "message": str(exc)})
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail={"code": "llm_timeout", "message": str(exc)},

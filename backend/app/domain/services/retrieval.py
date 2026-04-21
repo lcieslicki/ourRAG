@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Callable, Protocol
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -54,12 +54,14 @@ class RetrievalService:
         embedding_service: EmbeddingService,
         vector_index: VectorIndexService,
         settings: Settings,
+        debug_hook: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         self.session = session
         self.embedding_service = embedding_service
         self.vector_index = vector_index
         self.settings = settings
         self.access = WorkspaceAccessService(session)
+        self.debug_hook = debug_hook
 
     def retrieve(
         self,
@@ -81,7 +83,22 @@ class RetrievalService:
             document_ids=resolved_scope.document_ids,
         )
 
+        self._emit(
+            "retrieval.embedding_started",
+            {"workspace_id": workspace_id, "query": cleaned_query},
+        )
         query_embedding = self.embedding_service.embed_query(cleaned_query)
+        self._emit(
+            "retrieval.embedding_completed",
+            {
+                "embedding_metadata": {
+                    "provider": query_embedding.metadata.provider,
+                    "model_name": query_embedding.metadata.model_name,
+                    "model_version": query_embedding.metadata.model_version,
+                    "dimensions": query_embedding.metadata.dimensions,
+                }
+            },
+        )
         candidate_count = top_k or self.settings.retrieval.top_k
         raw_results = self.vector_index.query(
             VectorIndexQuery(
@@ -92,10 +109,24 @@ class RetrievalService:
                 document_ids=list(resolved_scope.document_ids) or None,
                 language=resolved_scope.language,
                 active_only=True,
+                debug_hook=self.debug_hook,
             )
         )
 
         chunks = self._package_results(workspace_id=workspace_id, results=raw_results)
+        self._emit(
+            "retrieval.completed",
+            {
+                "workspace_id": workspace_id,
+                "query": cleaned_query,
+                "category": resolved_scope.category,
+                "language": resolved_scope.language,
+                "document_ids": list(resolved_scope.document_ids),
+                "raw_result_count": len(raw_results),
+                "chunk_count": len(chunks),
+                "chunks": [chunk.payload for chunk in chunks],
+            },
+        )
         return RetrievalResponse(
             workspace_id=workspace_id,
             query=cleaned_query,
@@ -153,3 +184,7 @@ class RetrievalService:
             )
 
         return chunks
+
+    def _emit(self, event: str, payload: dict[str, Any]) -> None:
+        if self.debug_hook:
+            self.debug_hook(event, payload)

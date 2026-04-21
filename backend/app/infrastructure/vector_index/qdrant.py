@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import NAMESPACE_URL, uuid5
 
@@ -62,6 +63,7 @@ class VectorIndexQuery:
     document_ids: list[str] | None = None
     language: str | None = None
     active_only: bool = True
+    debug_hook: Callable[[str, dict], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -95,6 +97,22 @@ class QdrantVectorIndex:
         )
 
     def ensure_collection(self, *, vector_size: int, distance: str = "Cosine") -> None:
+        client = self._client or httpx.Client(timeout=self.timeout_seconds)
+        collection_url = f"{self.base_url}/collections/{self.collection}"
+
+        try:
+            response = client.request("GET", collection_url)
+            response.raise_for_status()
+            return
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 404:
+                raise VectorIndexError(f"Qdrant request failed: {exc}") from exc
+        except httpx.HTTPError as exc:
+            raise VectorIndexError(f"Qdrant request failed: {exc}") from exc
+        finally:
+            if self._client is None:
+                client.close()
+
         payload = {"vectors": {"size": vector_size, "distance": distance}}
         self._request("PUT", f"/collections/{self.collection}", json=payload)
 
@@ -131,6 +149,19 @@ class QdrantVectorIndex:
     def query(self, query: VectorIndexQuery) -> list[VectorIndexResult]:
         if query.top_k <= 0:
             raise ValueError("top_k must be positive.")
+        if query.debug_hook:
+            query.debug_hook(
+                "retrieval.qdrant_query_started",
+                {
+                    "workspace_id": query.workspace_id,
+                    "top_k": query.top_k,
+                    "category": query.category,
+                    "document_ids": query.document_ids,
+                    "language": query.language,
+                    "active_only": query.active_only,
+                    "filter": build_retrieval_filter(query),
+                },
+            )
 
         response = self._request(
             "POST",
@@ -146,6 +177,15 @@ class QdrantVectorIndex:
         if not isinstance(results, list):
             raise VectorIndexError("Qdrant search response did not include a result list.")
 
+        if query.debug_hook:
+            query.debug_hook(
+                "retrieval.qdrant_query_completed",
+                {
+                    "result_count": len(results),
+                    "results": results,
+                },
+            )
+
         return [
             VectorIndexResult(
                 id=str(item["id"]),
@@ -154,6 +194,35 @@ class QdrantVectorIndex:
             )
             for item in results
         ]
+
+    def count_document_version_vectors(
+        self,
+        *,
+        workspace_id: str,
+        document_version_id: str,
+        active_only: bool = True,
+    ) -> int:
+        must: list[dict] = [
+            match_filter("workspace_id", workspace_id),
+            match_filter("document_version_id", document_version_id),
+        ]
+        if active_only:
+            must.append(match_filter("is_active", True))
+        response = self._request(
+            "POST",
+            f"/collections/{self.collection}/points/count",
+            json={
+                "exact": True,
+                "filter": {"must": must},
+            },
+        )
+        result = response.get("result")
+        if not isinstance(result, dict):
+            raise VectorIndexError("Qdrant count response did not include a result object.")
+        count = result.get("count")
+        if not isinstance(count, int):
+            raise VectorIndexError("Qdrant count response did not include an integer count.")
+        return count
 
     def _request(self, method: str, path: str, *, json: dict) -> dict:
         client = self._client or httpx.Client(timeout=self.timeout_seconds)

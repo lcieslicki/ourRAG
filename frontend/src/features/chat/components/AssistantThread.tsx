@@ -1,6 +1,13 @@
-import { ComposerPrimitive, MessagePrimitive, ThreadPrimitive } from "@assistant-ui/react";
+import { ComposerPrimitive, MessagePrimitive, ThreadPrimitive, useMessage } from "@assistant-ui/react";
 
-export function AssistantThread() {
+import type { ChatProcessingLogEvent } from "../../../lib/api/types";
+
+type AssistantThreadProps = {
+  chatLogsByMessage: Record<string, ChatProcessingLogEvent[]>;
+};
+
+export function AssistantThread({ chatLogsByMessage }: AssistantThreadProps) {
+  const renderUserMessage = () => <UserMessage chatLogsByMessage={chatLogsByMessage} />;
   return (
     <ThreadPrimitive.Root className="assistant-thread">
       <ThreadPrimitive.Viewport className="assistant-thread-viewport">
@@ -12,7 +19,7 @@ export function AssistantThread() {
         </ThreadPrimitive.Empty>
         <ThreadPrimitive.Messages
           components={{
-            UserMessage,
+            UserMessage: renderUserMessage,
             AssistantMessage,
           }}
         />
@@ -30,11 +37,36 @@ export function AssistantThread() {
   );
 }
 
-function UserMessage() {
+function UserMessage({ chatLogsByMessage }: AssistantThreadProps) {
+  const message = useMessage();
+  const logs = chatLogsByMessage[message.id] ?? [];
+  const groupedLogs = groupLogsByCategory(logs);
+
   return (
     <MessagePrimitive.Root className="message-row message-row-user">
-      <div className="message-bubble user-bubble">
+      <div className="message-bubble user-bubble user-bubble-with-logs">
+        <div className="question-label">Question</div>
         <MessagePrimitive.Parts />
+        {logs.length > 0 ? (
+          <details className="chat-logs-panel">
+            <summary>Processing logs ({logs.length})</summary>
+            <div className="chat-logs-content">
+              {Object.entries(groupedLogs).map(([category, categoryLogs]) => (
+                <section key={category} className="chat-logs-category">
+                  <h5>{category}</h5>
+                  <ul>
+                    {categoryLogs.map((logEvent) => (
+                      <li key={logEvent.event_id}>
+                        <strong>{logEvent.stage}</strong> [{logEvent.status}] {new Date(logEvent.timestamp).toLocaleTimeString()}
+                        <pre>{JSON.stringify(logEvent.payload, null, 2)}</pre>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          </details>
+        ) : null}
       </div>
     </MessagePrimitive.Root>
   );
@@ -48,4 +80,12 @@ function AssistantMessage() {
       </div>
     </MessagePrimitive.Root>
   );
+}
+
+function groupLogsByCategory(logs: ChatProcessingLogEvent[]): Record<string, ChatProcessingLogEvent[]> {
+  return logs.reduce<Record<string, ChatProcessingLogEvent[]>>((acc, logEvent) => {
+    const key = logEvent.category || "other";
+    acc[key] = [...(acc[key] ?? []), logEvent];
+    return acc;
+  }, {});
 }

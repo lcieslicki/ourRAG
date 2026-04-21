@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { Link, Navigate, Route, Routes } from "react-router-dom";
 
 import { AppLayout } from "./app/AppLayout";
 import { ConversationList } from "./components/ConversationList";
@@ -7,7 +8,7 @@ import { AssistantRuntimeBridge } from "./features/chat/AssistantRuntimeBridge";
 import { ChatPage } from "./features/chat/ChatPage";
 import { ScopeFilters } from "./features/chat/ScopeFilters";
 import { useWorkspaceChat } from "./features/chat/useWorkspaceChat";
-import { AdminPanel } from "./features/admin/AdminPanel";
+import { AdminCrudRoutes } from "./features/admin/AdminCrudRoutes";
 import { LoginScreen, type Session } from "./features/auth/LoginScreen";
 import { ApiClient } from "./lib/api/client";
 import { config } from "./config";
@@ -33,7 +34,6 @@ function clearSession(): void {
 
 export function App() {
   const [session, setSession] = useState<Session | null>(loadSession);
-  const [adminMode, setAdminMode] = useState(false);
 
   const apiClient = useMemo(
     () => new ApiClient(config.api.baseUrl, () => session?.userId ?? ""),
@@ -63,55 +63,56 @@ export function App() {
       isRunning={chat.isSending}
       isDisabled={chat.isDisabled}
       onSubmit={chat.sendMessage}
-    >
-      <AppLayout
-        sidebar={
-          <>
-            <button
-              type="button"
-              className={`admin-toggle${adminMode ? " active" : ""}`}
-              onClick={() => setAdminMode((v) => !v)}
-            >
-              {adminMode ? "← Wróć do chatu" : "Panel Admina"}
-            </button>
-            {!adminMode && (
-              <>
-                <WorkspaceSwitcher session={session} onLogout={handleLogout} />
-                <ConversationList
-                  conversations={chat.conversations}
-                  activeConversationId={chat.activeConversationId}
-                  isLoading={chat.isLoadingConversations}
-                  onSelectConversation={(conversationId) => void chat.selectConversation(conversationId)}
-                  onStartNewConversation={chat.startNewConversation}
-                  onRefresh={() => void chat.loadConversations()}
-                />
-              </>
-            )}
-          </>
-        }
-      >
-        {adminMode ? (
-          <AdminPanel apiClient={apiClient} />
-        ) : (
-          <ChatPage
-            workspaceId={session.workspaceId}
-            conversationId={chat.activeConversationId}
-            error={chat.error}
-            isLoadingConversation={chat.isLoadingConversation}
-            isSending={chat.isSending}
-            scopeFilters={
-              <ScopeFilters
-                documents={chat.documents}
-                isLoading={chat.isLoadingDocuments}
-                scope={chat.scope}
-                onScopeChange={chat.setScope}
-                onRefreshDocuments={() => void chat.loadDocuments()}
+      children={(
+        <AppLayout
+          sidebar={(
+            <>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <Link className="admin-toggle" to="/chat">Chat</Link>
+                <Link className="admin-toggle" to="/admin/workspaces">Panel Admina</Link>
+              </div>
+              <WorkspaceSwitcher session={session} onLogout={handleLogout} />
+              <ConversationList
+                conversations={chat.conversations}
+                activeConversationId={chat.activeConversationId}
+                isLoading={chat.isLoadingConversations}
+                onSelectConversation={(conversationId) => void chat.selectConversation(conversationId)}
+                onStartNewConversation={chat.startNewConversation}
+                onRefresh={() => void chat.loadConversations()}
               />
-            }
-            sources={chat.latestSources}
-          />
-        )}
-      </AppLayout>
-    </AssistantRuntimeBridge>
+            </>
+          )}
+          children={(
+            <Routes>
+              <Route
+                path="/chat"
+                element={(
+                  <ChatPage
+                    workspaceId={session.workspaceId}
+                    conversationId={chat.activeConversationId}
+                    error={chat.error}
+                    isLoadingConversation={chat.isLoadingConversation}
+                    isSending={chat.isSending}
+                    scopeFilters={(
+                      <ScopeFilters
+                        documents={chat.documents}
+                        isLoading={chat.isLoadingDocuments}
+                        scope={chat.scope}
+                        onScopeChange={chat.setScope}
+                        onRefreshDocuments={() => void chat.loadDocuments()}
+                      />
+                    )}
+                    sources={chat.latestSources}
+                    chatLogsByMessage={chat.chatLogsByMessage}
+                  />
+                )}
+              />
+              <Route path="/admin/*" element={<AdminCrudRoutes apiClient={apiClient} />} />
+              <Route path="*" element={<Navigate to="/chat" replace />} />
+            </Routes>
+          )}
+        />
+      )}
+    />
   );
 }

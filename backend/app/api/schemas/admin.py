@@ -98,7 +98,6 @@ class AdminDocumentUploadResponse(BaseModel):
 class AdminFolderIndexRequest(BaseModel):
     user_id: str
     folder: str | None = Field(default=None, max_length=255)
-    category: str = Field(default="admin", max_length=120)
 
 
 class AdminSetDataFolderRequest(BaseModel):
@@ -116,9 +115,19 @@ class AdminDocumentListItemResponse(BaseModel):
     id: str
     title: str
     category: str
+    tags: list[str]
     status: str
+    language: str | None
     latest_processing_status: str | None
     latest_version_id: str | None
+    latest_version_number: int | None
+    chunk_count: int | None
+    indexed_at: datetime | None
+    embedding_model_name: str | None
+    embedding_model_version: str | None
+    is_active: bool | None
+    is_invalidated: bool | None
+    qdrant_vector_count: int | None
     latest_error_message: str | None
     latest_error_job_type: str | None
     version_count: int

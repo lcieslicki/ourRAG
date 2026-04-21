@@ -39,10 +39,9 @@ def test_upload_markdown_creates_document_version_and_stores_file(db_session, tm
             data={
                 "workspace_id": workspace.id,
                 "title": "Vacation Policy",
-                "category": "HR",
                 "tags": "hr, vacation",
             },
-            files={"file": ("vacation.md", b"# Vacation\n", "text/markdown")},
+            files={"file": ("hr_vacation.md", b"# Vacation\n", "text/markdown")},
         )
     finally:
         clear_overrides()
@@ -54,6 +53,7 @@ def test_upload_markdown_creates_document_version_and_stores_file(db_session, tm
 
     assert document is not None
     assert document.workspace_id == workspace.id
+    assert document.category == "HR"
     assert document.tags_json == ["hr", "vacation"]
     assert version is not None
     assert version.document_id == document.id
@@ -83,9 +83,8 @@ def test_upload_pipeline_can_process_uploaded_version_to_ready(db_session, tmp_p
             data={
                 "workspace_id": workspace.id,
                 "title": "Onboarding",
-                "category": "HR",
             },
-            files={"file": ("onboarding.md", b"# Onboarding\n\nWelcome.\n", "text/markdown")},
+            files={"file": ("hr_onboarding.md", b"# Onboarding\n\nWelcome.\n", "text/markdown")},
         )
     finally:
         clear_overrides()
@@ -104,6 +103,7 @@ def test_upload_pipeline_can_process_uploaded_version_to_ready(db_session, tmp_p
     ]
     assert version.processing_status == "ready"
     assert version.indexed_at is not None
+    assert version.is_active is True
 
 
 def test_upload_new_version_for_existing_document_increments_version_number(db_session, tmp_path) -> None:
@@ -121,9 +121,8 @@ def test_upload_new_version_for_existing_document_increments_version_number(db_s
                 "workspace_id": workspace.id,
                 "document_id": document.id,
                 "title": document.title,
-                "category": document.category,
             },
-            files={"file": ("first.md", b"# First\n", "text/markdown")},
+            files={"file": ("hr_first.md", b"# First\n", "text/markdown")},
         )
         second = client.post(
             "/api/documents/upload",
@@ -132,9 +131,8 @@ def test_upload_new_version_for_existing_document_increments_version_number(db_s
                 "workspace_id": workspace.id,
                 "document_id": document.id,
                 "title": document.title,
-                "category": document.category,
             },
-            files={"file": ("second.md", b"# Second\n", "text/markdown")},
+            files={"file": ("finance_second.md", b"# Second\n", "text/markdown")},
         )
     finally:
         clear_overrides()
@@ -144,6 +142,8 @@ def test_upload_new_version_for_existing_document_increments_version_number(db_s
     assert second.status_code == 201
     assert second.json()["version_number"] == 2
     assert second.json()["document_id"] == document.id
+    db_session.refresh(document)
+    assert document.category == "FINANCE"
 
 
 def test_upload_rejects_unsupported_file_type(db_session, tmp_path) -> None:
@@ -156,7 +156,7 @@ def test_upload_rejects_unsupported_file_type(db_session, tmp_path) -> None:
         response = client.post(
             "/api/documents/upload",
             headers={"X-User-Id": user.id},
-            data={"workspace_id": workspace.id, "title": "Notes", "category": "HR"},
+            data={"workspace_id": workspace.id, "title": "Notes"},
             files={"file": ("notes.txt", b"notes", "text/plain")},
         )
     finally:
@@ -176,7 +176,7 @@ def test_upload_rejects_markdown_extension_with_unsupported_mime_type(db_session
         response = client.post(
             "/api/documents/upload",
             headers={"X-User-Id": user.id},
-            data={"workspace_id": workspace.id, "title": "Policy", "category": "HR"},
+            data={"workspace_id": workspace.id, "title": "Policy"},
             files={"file": ("policy.md", b"# Policy\n", "application/pdf")},
         )
     finally:
@@ -198,7 +198,7 @@ def test_upload_requires_admin_or_owner_role(db_session, tmp_path) -> None:
         response = client.post(
             "/api/documents/upload",
             headers={"X-User-Id": user.id},
-            data={"workspace_id": workspace.id, "title": "Policy", "category": "HR"},
+            data={"workspace_id": workspace.id, "title": "Policy"},
             files={"file": ("policy.md", b"# Policy\n", "text/markdown")},
         )
     finally:
@@ -224,7 +224,6 @@ def test_upload_existing_document_rejects_wrong_workspace(db_session, tmp_path) 
                 "workspace_id": workspace.id,
                 "document_id": other_document.id,
                 "title": other_document.title,
-                "category": other_document.category,
             },
             files={"file": ("policy.md", b"# Policy\n", "text/markdown")},
         )
@@ -244,7 +243,7 @@ def test_upload_rejects_missing_workspace_membership(db_session, tmp_path) -> No
         response = client.post(
             "/api/documents/upload",
             headers={"X-User-Id": user.id},
-            data={"workspace_id": workspace.id, "title": "Policy", "category": "HR"},
+            data={"workspace_id": workspace.id, "title": "Policy"},
             files={"file": ("policy.md", b"# Policy\n", "text/markdown")},
         )
     finally:
@@ -252,3 +251,43 @@ def test_upload_rejects_missing_workspace_membership(db_session, tmp_path) -> No
 
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "workspace_access_denied"
+
+
+def test_upload_without_separator_uses_whole_stem_as_category(db_session, tmp_path) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    create_membership(db_session, user=user, workspace=workspace, role="admin")
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.post(
+            "/api/documents/upload",
+            headers={"X-User-Id": user.id},
+            data={"workspace_id": workspace.id, "title": "Policy"},
+            files={"file": ("legal.md", b"# Legal\n", "text/markdown")},
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 201
+    assert response.json()["category"] == "LEGAL"
+
+
+def test_upload_with_empty_prefix_falls_back_to_uncategorized(db_session, tmp_path) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    create_membership(db_session, user=user, workspace=workspace, role="admin")
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.post(
+            "/api/documents/upload",
+            headers={"X-User-Id": user.id},
+            data={"workspace_id": workspace.id, "title": "Policy"},
+            files={"file": ("_policy.md", b"# Policy\n", "text/markdown")},
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 201
+    assert response.json()["category"] == "UNCATEGORIZED"

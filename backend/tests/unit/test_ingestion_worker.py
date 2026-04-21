@@ -116,12 +116,12 @@ def test_runner_advances_default_ingestion_flow_to_ready(db_session) -> None:
 
     assert version.processing_status == "ready"
     assert version.indexed_at is not None
-    assert [job.job_type for job in db_session.query(DocumentProcessingJob).order_by(DocumentProcessingJob.created_at)] == [
-        "parse_document",
-        "chunk_document",
-        "embed_document",
-        "index_document",
-    ]
+    assert [
+        job.job_type
+        for job in db_session.query(DocumentProcessingJob)
+        .filter_by(document_version_id=version.id)
+        .order_by(DocumentProcessingJob.created_at)
+    ] == ["parse_document", "chunk_document", "embed_document", "index_document"]
 
 
 def test_runner_run_until_idle_processes_upload_pipeline(db_session) -> None:
@@ -146,7 +146,7 @@ def test_runner_run_until_idle_processes_upload_pipeline(db_session) -> None:
     assert version.indexed_at is not None
 
 
-def test_indexing_path_parses_chunks_embeds_and_indexes_inactive_version(db_session, tmp_path) -> None:
+def test_indexing_path_parses_chunks_embeds_and_marks_version_active(db_session, tmp_path) -> None:
     workspace, document, version, storage = prepare_version_with_file(db_session, tmp_path, is_active=False)
     embedding_service = FakeEmbeddingService()
     vector_index = FakeVectorIndex()
@@ -183,7 +183,8 @@ def test_indexing_path_parses_chunks_embeds_and_indexes_inactive_version(db_sess
     assert first_point.document_id == document.id
     assert first_point.document_version_id == version.id
     assert first_point.category == document.category
-    assert first_point.is_active is False
+    assert first_point.is_active is True
+    assert version.is_active is True
 
 
 def test_indexing_path_marks_active_version_payload_active(db_session, tmp_path) -> None:

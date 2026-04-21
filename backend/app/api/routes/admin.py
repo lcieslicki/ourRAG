@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from starlette.datastructures import Headers
 
@@ -57,6 +57,28 @@ class _FilePathUpload:
         self.headers = Headers({})
 
 
+def _count_version_vectors(
+    vector_index: QdrantVectorIndex,
+    *,
+    workspace_id: str,
+    version_id: str,
+) -> int | None:
+    try:
+        return vector_index.count_document_version_vectors(
+            workspace_id=workspace_id,
+            document_version_id=version_id,
+            active_only=True,
+        )
+    except VectorIndexError as exc:
+        logger.warning(
+            "admin.vector_count.failed workspace_id=%s version_id=%s error=%s",
+            workspace_id,
+            version_id,
+            str(exc),
+        )
+        return None
+
+
 def _resolve_data_folder(data_root: Path, folder: str) -> Path:
     if ".." in Path(folder).parts:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, {"code": "invalid_folder", "message": "Invalid path"})
@@ -97,6 +119,7 @@ def _processing_job_response(job: DocumentProcessingJob, document: Document) -> 
 
 def _delete_document_with_artifacts(db: Session, *, workspace_id: str, document: Document) -> tuple[int, int]:
     versions = list(document.versions)
+    version_ids = [version.id for version in versions]
     vector_index = QdrantVectorIndex.from_settings(get_settings())
     for version in versions:
         try:
@@ -120,6 +143,13 @@ def _delete_document_with_artifacts(db: Session, *, workspace_id: str, document:
         shutil.rmtree(document_storage_root)
 
     deleted_versions = len(versions)
+    if version_ids:
+        db.execute(
+            delete(DocumentProcessingJob).where(DocumentProcessingJob.document_version_id.in_(version_ids))
+        )
+        db.execute(
+            delete(DocumentVersion).where(DocumentVersion.id.in_(version_ids))
+        )
     db.delete(document)
     return 1, deleted_versions
 
@@ -129,7 +159,6 @@ def _index_one(
     service: DocumentService,
     workspace_id: str,
     user_id: str,
-    category: str,
     file: UploadFile | _FilePathUpload,
     db: Session,
 ) -> AdminDocumentIndexResult | AdminIndexFailure:
@@ -142,7 +171,6 @@ def _index_one(
             workspace_id=workspace_id,
             file=file,  # type: ignore[arg-type]
             title=title,
-            category=category,
         )
         sp.commit()
         return AdminDocumentIndexResult(
@@ -294,23 +322,83 @@ def list_workspace_documents(workspace_id: str, db: Annotated[Session, Depends(g
         if version.document_id not in latest_failed_by_document:
             latest_failed_by_document[version.document_id] = job
 
+    vector_index = QdrantVectorIndex.from_settings(get_settings())
     result = []
     for doc in documents:
         versions = sorted(doc.versions, key=lambda v: v.version_number)
         latest = versions[-1] if versions else None
         latest_failed = latest_failed_by_document.get(doc.id)
+        qdrant_vector_count = None
+        if latest is not None:
+            qdrant_vector_count = _count_version_vectors(
+                vector_index,
+                workspace_id=workspace_id,
+                version_id=latest.id,
+            )
         result.append(AdminDocumentListItemResponse(
             id=doc.id,
             title=doc.title,
             category=doc.category,
+            tags=list(doc.tags_json or []),
             status=doc.status,
+            language=latest.language if latest else None,
             latest_processing_status=latest.processing_status if latest else None,
             latest_version_id=latest.id if latest else None,
+            latest_version_number=latest.version_number if latest else None,
+            chunk_count=latest.chunk_count if latest else None,
+            indexed_at=latest.indexed_at if latest else None,
+            embedding_model_name=latest.embedding_model_name if latest else None,
+            embedding_model_version=latest.embedding_model_version if latest else None,
+            is_active=latest.is_active if latest else None,
+            is_invalidated=latest.is_invalidated if latest else None,
+            qdrant_vector_count=qdrant_vector_count,
             latest_error_message=latest_failed.error_message if latest_failed else None,
             latest_error_job_type=latest_failed.job_type if latest_failed else None,
             version_count=len(versions),
         ))
     return result
+
+
+@router.get("/workspaces/{workspace_id}/documents/{document_id}/index-diagnostics")
+def get_document_index_diagnostics(
+    workspace_id: str,
+    document_id: str,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    document = db.get(Document, document_id)
+    if document is None or document.workspace_id != workspace_id:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            {"code": "document_not_found", "message": "Document not found in workspace"},
+        )
+
+    versions = sorted(document.versions, key=lambda item: item.version_number)
+    latest = versions[-1] if versions else None
+    vector_count = None
+    if latest is not None:
+        vector_count = _count_version_vectors(
+            QdrantVectorIndex.from_settings(get_settings()),
+            workspace_id=workspace_id,
+            version_id=latest.id,
+        )
+
+    return {
+        "document_id": document.id,
+        "workspace_id": workspace_id,
+        "latest_version_id": latest.id if latest else None,
+        "latest_version_number": latest.version_number if latest else None,
+        "latest_processing_status": latest.processing_status if latest else None,
+        "indexed_at": latest.indexed_at.isoformat() if latest and latest.indexed_at else None,
+        "is_active": latest.is_active if latest else None,
+        "is_invalidated": latest.is_invalidated if latest else None,
+        "chunk_count": latest.chunk_count if latest else None,
+        "qdrant_vector_count": vector_count,
+        "embedding_model_name": latest.embedding_model_name if latest else None,
+        "embedding_model_version": latest.embedding_model_version if latest else None,
+        "language": latest.language if latest else None,
+        "category": document.category,
+        "tags": list(document.tags_json or []),
+    }
 
 
 @router.delete("/workspaces/{workspace_id}/documents/{document_id}", response_model=AdminDocumentDeleteResponse)
@@ -358,7 +446,6 @@ def admin_upload_documents(
     db: Annotated[Session, Depends(get_db)],
     storage: Annotated[LocalFileStorage, Depends(get_local_file_storage)],
     user_id: Annotated[str, Form()],
-    category: Annotated[str, Form()] = "admin",
     files: Annotated[list[UploadFile], File()] = (),
 ) -> AdminDocumentUploadResponse:
     service = DocumentService(db, storage)
@@ -366,7 +453,7 @@ def admin_upload_documents(
     failed: list[AdminIndexFailure] = []
 
     for file in files:
-        outcome = _index_one(service=service, workspace_id=workspace_id, user_id=user_id, category=category, file=file, db=db)
+        outcome = _index_one(service=service, workspace_id=workspace_id, user_id=user_id, file=file, db=db)
         if isinstance(outcome, AdminDocumentIndexResult):
             indexed.append(outcome)
         else:
@@ -410,7 +497,6 @@ def admin_index_folder(
             service=service,
             workspace_id=workspace_id,
             user_id=payload.user_id,
-            category=payload.category,
             file=_FilePathUpload(path),
             db=db,
         )
@@ -537,6 +623,66 @@ def create_user(payload: UserCreateRequest, db: Annotated[Session, Depends(get_d
     return UserResponse(id=user.id, email=user.email, display_name=user.display_name, status=user.status, created_at=user.created_at)
 
 
+@router.get("/users/{user_id}", response_model=UserResponse)
+def get_user(user_id: str, db: Annotated[Session, Depends(get_db)]) -> UserResponse:
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "user_not_found", "message": "User not found"})
+    return UserResponse(id=user.id, email=user.email, display_name=user.display_name, status=user.status, created_at=user.created_at)
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(user_id: str, db: Annotated[Session, Depends(get_db)]) -> None:
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "user_not_found", "message": "User not found"})
+
+    memberships_count = db.execute(
+        select(WorkspaceMembership).where(WorkspaceMembership.user_id == user_id)
+    ).scalars().all()
+    conversations_count = db.execute(
+        select(Audit).where(Audit.user_id == user_id)
+    ).scalars().all()
+    documents_count = db.execute(
+        select(Document).where(Document.created_by_user_id == user_id)
+    ).scalars().all()
+    versions_count = db.execute(
+        select(DocumentVersion).where(DocumentVersion.created_by_user_id == user_id)
+    ).scalars().all()
+
+    if documents_count or versions_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "user_has_documents",
+                "message": "Cannot delete user that created documents or versions",
+            },
+        )
+
+    if memberships_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "user_has_memberships", "message": "Cannot delete user that still belongs to workspaces"},
+        )
+
+    db.delete(user)
+    db.add(
+        Audit(
+            workspace_id=None,
+            user_id=None,
+            event_type="user_deleted",
+            entity_type="user",
+            entity_id=user_id,
+            payload_json={
+                "email": user.email,
+                "display_name": user.display_name,
+                "had_audits": bool(conversations_count),
+            },
+        )
+    )
+    db.commit()
+
+
 @router.get("/workspaces", response_model=list[WorkspaceResponse])
 def list_workspaces(db: Annotated[Session, Depends(get_db)]) -> list[WorkspaceResponse]:
     workspaces = db.execute(select(Workspace).order_by(Workspace.created_at.desc())).scalars().all()
@@ -553,6 +699,34 @@ def create_workspace(payload: WorkspaceCreateRequest, db: Annotated[Session, Dep
     db.commit()
     db.refresh(workspace)
     return _workspace_response(workspace)
+
+
+@router.get("/workspaces/{workspace_id}", response_model=WorkspaceResponse)
+def get_workspace(workspace_id: str, db: Annotated[Session, Depends(get_db)]) -> WorkspaceResponse:
+    workspace = db.get(Workspace, workspace_id)
+    if workspace is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "workspace_not_found", "message": "Workspace not found"})
+    return _workspace_response(workspace)
+
+
+@router.delete("/workspaces/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_workspace(workspace_id: str, db: Annotated[Session, Depends(get_db)]) -> None:
+    workspace = db.get(Workspace, workspace_id)
+    if workspace is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "workspace_not_found", "message": "Workspace not found"})
+
+    db.delete(workspace)
+    db.add(
+        Audit(
+            workspace_id=None,
+            user_id=None,
+            event_type="workspace_deleted",
+            entity_type="workspace",
+            entity_id=workspace_id,
+            payload_json={"name": workspace.name, "slug": workspace.slug},
+        )
+    )
+    db.commit()
 
 
 @router.put("/workspaces/{workspace_id}/data-folder", response_model=WorkspaceResponse)

@@ -15,7 +15,8 @@
   "dependencies": {
     "@assistant-ui/react": "^0.10.46",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.14.1"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.0",

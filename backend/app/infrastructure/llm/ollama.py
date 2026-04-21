@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from threading import BoundedSemaphore
 import time
 
@@ -59,9 +60,35 @@ class OllamaGateway:
         }
         if request.temperature is not None:
             payload["options"] = {"temperature": request.temperature}
+        debug_hook = request.metadata.get("debug_hook")
+        if callable(debug_hook):
+            cast_hook = debug_hook
+            cast_hook(
+                "llm.started",
+                {
+                    "provider": self.provider,
+                    "model": payload["model"],
+                    "messages": payload["messages"],
+                    "options": payload.get("options"),
+                },
+            )
+        else:
+            cast_hook = None
 
         with self._semaphore:
-            return self._send_with_retries(payload)
+            response = self._send_with_retries(payload)
+        if cast_hook:
+            cast_hook(
+                "llm.completed",
+                {
+                    "provider": response.provider,
+                    "model": response.model,
+                    "finish_reason": response.finish_reason,
+                    "metadata": response.metadata,
+                    "text_preview": response.text[:5000],
+                },
+            )
+        return response
 
     def _send_with_retries(self, payload: dict) -> GenerationResponse:
         last_error: Exception | None = None

@@ -378,6 +378,60 @@ button {
   color: #ffffff;
 }
 
+.user-bubble-with-logs {
+  display: grid;
+  gap: 8px;
+}
+
+.question-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.chat-logs-panel {
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.chat-logs-panel summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chat-logs-content {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chat-logs-category h5 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.chat-logs-category ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.chat-logs-category li {
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.chat-logs-category pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .assistant-bubble {
   border: 1px solid #d7dde3;
   background: #ffffff;
