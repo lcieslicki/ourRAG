@@ -15,7 +15,7 @@ Does not:
 - perform heavy ingestion inline,
 - allow frontend to enforce authorization.
 
-## Worker
+## Ingestion Job Runner
 Responsibilities:
 
 - parse uploaded files,
@@ -28,6 +28,13 @@ Responsibilities:
 Does not:
 
 - serve user-facing APIs.
+
+Current status:
+- jobs are persisted in PostgreSQL,
+- upload creates queued processing jobs,
+- the runner can process jobs until idle,
+- local admin upload/folder indexing can trigger processing through backend background tasks,
+- a separate long-running worker container is not wired into Docker Compose yet.
 
 ## WorkspaceContextService
 Responsibilities:
@@ -129,6 +136,11 @@ Responsibilities:
 - trigger reindex,
 - show processing status,
 - manage workspace-level configuration.
+
+Current status:
+- the admin surface is optimized for local bootstrap and testing,
+- some admin/bootstrap endpoints are intentionally relaxed,
+- production-grade role hardening is out of scope for the local-only MVP.
 
 ## React Frontend
 Responsibilities:

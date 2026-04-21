@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, PositiveInt, StringConstraints, field_validator, model_validator
+from pydantic import AnyHttpUrl, BaseModel, Field, PositiveInt, StringConstraints, TypeAdapter, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -15,6 +15,7 @@ class AppConfig(BaseModel):
     host: NonEmptyStr
     port: int = Field(ge=1, le=65535)
     log_level: Literal["debug", "info", "warning", "error", "critical"]
+    cors_origins: tuple[str, ...]
 
 
 class PostgresConfig(BaseModel):
@@ -106,6 +107,7 @@ class EnvSettings(BaseSettings):
     app_host: NonEmptyStr
     app_port: int
     app_log_level: Literal["debug", "info", "warning", "error", "critical"]
+    app_cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     postgres_host: NonEmptyStr
     postgres_port: int
@@ -170,6 +172,17 @@ class EnvSettings(BaseSettings):
             return None
         return value
 
+    @field_validator("app_cors_origins")
+    @classmethod
+    def validate_cors_origins(cls, value: str) -> str:
+        origins = [origin.strip() for origin in value.split(",") if origin.strip()]
+        if not origins:
+            raise ValueError("APP_CORS_ORIGINS must include at least one origin")
+        adapter = TypeAdapter(AnyHttpUrl)
+        for origin in origins:
+            adapter.validate_python(origin)
+        return ",".join(origins)
+
     def to_settings(self) -> Settings:
         return Settings(
             app=AppConfig(
@@ -178,6 +191,7 @@ class EnvSettings(BaseSettings):
                 host=self.app_host,
                 port=self.app_port,
                 log_level=self.app_log_level,
+                cors_origins=tuple(self.app_cors_origins.split(",")),
             ),
             postgres=PostgresConfig(
                 host=self.postgres_host,

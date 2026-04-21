@@ -14,7 +14,7 @@ Stores:
 - conversations,
 - messages,
 - conversation summaries,
-- admin audit data,
+- partial local admin audit data,
 - indexing metadata.
 
 ### Qdrant
@@ -177,6 +177,8 @@ Fields:
 - `entity_id`
 - `payload_json`
 - `created_at`
+
+Current audit coverage is partial. It records selected local admin and document lifecycle events, not every bootstrap operation or denied action.
 
 ## Qdrant payload model
 

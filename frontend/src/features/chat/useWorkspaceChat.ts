@@ -18,6 +18,24 @@ type UseWorkspaceChatOptions = {
   workspaceId: string;
 };
 
+export type ChatReadinessItemStatus = "ok" | "loading" | "error";
+
+export type ChatReadinessCheck = {
+  id: "user" | "workspace" | "backend" | "llm" | "documents" | "conversation";
+  label: string;
+  status: ChatReadinessItemStatus;
+  hint: string;
+};
+
+export type ChatReadinessStatus = "ready" | "loading" | "error";
+
+export type ChatReadiness = {
+  status: ChatReadinessStatus;
+  title: string;
+  hint: string;
+  checks: ChatReadinessCheck[];
+};
+
 export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspaceChatOptions) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState("");
@@ -30,6 +48,12 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [chatLogsByMessage, setChatLogsByMessage] = useState<Record<string, ChatProcessingLogEvent[]>>({});
+  const [hasLoadedConversations, setHasLoadedConversations] = useState(false);
+  const [hasLoadedDocuments, setHasLoadedDocuments] = useState(false);
+  const [isCheckingBackend, setIsCheckingBackend] = useState(false);
+  const [isBackendReachable, setIsBackendReachable] = useState(false);
+  const [isCheckingLlm, setIsCheckingLlm] = useState(false);
+  const [isLlmReady, setIsLlmReady] = useState(false);
   const pendingMessageIdRef = useRef<string | null>(null);
 
   const canUseApi = userId.trim() !== "" && workspaceId.trim() !== "";
@@ -40,6 +64,7 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
       setDocuments([]);
       setActiveConversationId("");
       setMessages([]);
+      setHasLoadedConversations(false);
       return;
     }
 
@@ -56,6 +81,7 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
       setError(errorMessage(error));
     } finally {
       setIsLoadingConversations(false);
+      setHasLoadedConversations(true);
     }
   }, [activeConversationId, apiClient, canUseApi, workspaceId]);
 
@@ -66,6 +92,7 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
   const loadDocuments = useCallback(async () => {
     if (!canUseApi) {
       setDocuments([]);
+      setHasLoadedDocuments(false);
       return;
     }
 
@@ -79,12 +106,82 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
       setDocuments([]);
     } finally {
       setIsLoadingDocuments(false);
+      setHasLoadedDocuments(true);
     }
   }, [apiClient, canUseApi, workspaceId]);
 
   useEffect(() => {
     void loadDocuments();
   }, [loadDocuments]);
+
+  useEffect(() => {
+    if (!canUseApi) {
+      setIsCheckingBackend(false);
+      setIsBackendReachable(false);
+      return;
+    }
+
+    let isMounted = true;
+    setIsCheckingBackend(true);
+    void apiClient
+      .ping()
+      .then(() => {
+        if (isMounted) {
+          setIsBackendReachable(true);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setIsBackendReachable(false);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsCheckingBackend(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [apiClient, canUseApi]);
+
+  useEffect(() => {
+    if (!canUseApi) {
+      setIsCheckingLlm(false);
+      setIsLlmReady(false);
+      return;
+    }
+    if (!isBackendReachable) {
+      setIsCheckingLlm(false);
+      setIsLlmReady(false);
+      return;
+    }
+
+    let isMounted = true;
+    setIsCheckingLlm(true);
+    void apiClient
+      .checkLlmHealth()
+      .then(() => {
+        if (isMounted) {
+          setIsLlmReady(true);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setIsLlmReady(false);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsCheckingLlm(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [apiClient, canUseApi, isBackendReachable]);
 
   const selectConversation = useCallback(
     async (conversationId: string) => {
@@ -227,6 +324,151 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
     return latestAssistantMessage?.sources ?? [];
   }, [messages]);
 
+  const readinessChecks = useMemo<ChatReadinessCheck[]>(() => {
+    const hasUser = userId.trim() !== "";
+    const hasWorkspace = workspaceId.trim() !== "";
+    const canCheckBackend = hasUser && hasWorkspace;
+    const backendLoading = canCheckBackend && isCheckingBackend;
+    const backendError = !!error;
+    const llmLoading = canCheckBackend && isBackendReachable && isCheckingLlm;
+    const documentsLoading = canCheckBackend && (!hasLoadedDocuments || isLoadingDocuments);
+    const conversationLoading = canCheckBackend && isLoadingConversation;
+
+    return [
+      {
+        id: "user",
+        label: "User session",
+        status: hasUser ? "ok" : "error",
+        hint: hasUser ? "Authenticated user is available." : "Login is required to start chat.",
+      },
+      {
+        id: "workspace",
+        label: "Workspace selected",
+        status: hasWorkspace ? "ok" : "error",
+        hint: hasWorkspace ? "Workspace context is active." : "Select a workspace before chatting.",
+      },
+      {
+        id: "backend",
+        label: "Backend API",
+        status: !canCheckBackend
+          ? "loading"
+          : backendLoading
+            ? "loading"
+            : isBackendReachable
+              ? "ok"
+              : "error",
+        hint: !canCheckBackend
+          ? "Waiting for session and workspace."
+          : backendLoading
+              ? "Checking backend availability..."
+              : isBackendReachable
+                ? "Backend ping check passed."
+                : "Backend is unreachable. Check API health.",
+      },
+      {
+        id: "documents",
+        label: "Documents scope",
+        status: !canCheckBackend
+          ? "loading"
+          : backendError || !isBackendReachable
+            ? "error"
+            : documentsLoading
+              ? "loading"
+              : "ok",
+        hint: !canCheckBackend
+          ? "Waiting for workspace context."
+          : backendError || !isBackendReachable
+            ? "Could not load workspace documents."
+            : documentsLoading
+              ? "Loading available documents..."
+              : "Document scope is ready.",
+      },
+      {
+        id: "llm",
+        label: "Ollama / Chat model",
+        status: !canCheckBackend
+          ? "loading"
+          : !isBackendReachable
+            ? "error"
+            : llmLoading
+              ? "loading"
+              : isLlmReady
+                ? "ok"
+                : "error",
+        hint: !canCheckBackend
+          ? "Waiting for session and workspace."
+          : !isBackendReachable
+            ? "Cannot verify LLM while backend is unreachable."
+            : llmLoading
+              ? "Checking Ollama model readiness..."
+              : isLlmReady
+                ? "Ollama model is ready."
+                : "Ollama is reachable but model is not ready.",
+      },
+      {
+        id: "conversation",
+        label: "Conversation state",
+        status: !canCheckBackend
+          ? "loading"
+          : backendError || !isBackendReachable || !isLlmReady
+            ? "error"
+            : conversationLoading
+              ? "loading"
+              : "ok",
+        hint: !canCheckBackend
+          ? "Waiting for workspace context."
+          : backendError || !isBackendReachable || !isLlmReady
+            ? "Conversation cannot be loaded because of an error."
+            : conversationLoading
+              ? "Loading active conversation..."
+              : "Conversation is ready for input.",
+      },
+    ];
+  }, [
+    error,
+    hasLoadedConversations,
+    hasLoadedDocuments,
+    isBackendReachable,
+    isCheckingBackend,
+    isCheckingLlm,
+    isLoadingConversation,
+    isLoadingConversations,
+    isLoadingDocuments,
+    isLlmReady,
+    userId,
+    workspaceId,
+  ]);
+
+  const chatReadiness = useMemo<ChatReadiness>(() => {
+    const hasError = readinessChecks.some((check) => check.status === "error");
+    const hasLoading = readinessChecks.some((check) => check.status === "loading");
+
+    if (hasError) {
+      return {
+        status: "error",
+        title: "Chat requires attention",
+        hint: "Fix failing checks to start using chat safely.",
+        checks: readinessChecks,
+      };
+    }
+
+    if (hasLoading) {
+      return {
+        status: "loading",
+        title: "Preparing chat",
+        hint: "A few startup checks are still running.",
+        checks: readinessChecks,
+      };
+    }
+
+    return {
+      status: "ready",
+      title: "Chat is ready",
+      hint: "All checks passed. You can ask your question now.",
+      checks: readinessChecks,
+    };
+  }, [readinessChecks]);
+
   return {
     activeConversationId,
     conversations,
@@ -242,6 +484,7 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
     loadDocuments,
     messages,
     chatLogsByMessage,
+    chatReadiness,
     scope,
     selectConversation,
     sendMessage,

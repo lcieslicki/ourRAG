@@ -5,7 +5,7 @@ from app.domain.embeddings import EmbeddingMetadata, EmbeddingResult
 from app.domain.errors import DocumentAccessDenied, WorkspaceAccessDenied
 from app.domain.services.retrieval import RetrievalScope, RetrievalService
 from app.infrastructure.vector_index import VectorIndexQuery, VectorIndexResult
-from tests.factories import create_document, create_membership, create_user, create_workspace
+from tests.factories import create_document, create_document_version, create_membership, create_user, create_workspace
 
 
 class FakeEmbeddingService:
@@ -60,7 +60,17 @@ def test_retrieval_embeds_query_and_queries_qdrant_with_mandatory_filters(db_ses
     workspace = create_workspace(db_session)
     create_membership(db_session, user=user, workspace=workspace, role="member")
     embeddings = FakeEmbeddingService()
-    vector_index = FakeVectorIndex([vector_result(workspace_id=workspace.id, chunk_id="chunk-1")])
+    document, version = create_ready_active_version(db_session, workspace=workspace, user=user)
+    vector_index = FakeVectorIndex(
+        [
+            vector_result(
+                workspace_id=workspace.id,
+                document_id=document.id,
+                document_version_id=version.id,
+                chunk_id="chunk-1",
+            )
+        ]
+    )
     service = retrieval_service(db_session, embedding_service=embeddings, vector_index=vector_index)
 
     response = service.retrieve(
@@ -132,13 +142,38 @@ def test_retrieval_filters_payload_defensively_and_deduplicates_chunks(db_sessio
     user = create_user(db_session)
     workspace = create_workspace(db_session)
     create_membership(db_session, user=user, workspace=workspace, role="member")
+    document, version = create_ready_active_version(db_session, workspace=workspace, user=user)
     vector_index = FakeVectorIndex(
         [
-            vector_result(workspace_id=workspace.id, chunk_id="chunk-1", score=0.9),
-            vector_result(workspace_id=workspace.id, chunk_id="chunk-1", score=0.8),
-            vector_result(workspace_id=workspace.id, chunk_id="inactive", is_active=False),
+            vector_result(
+                workspace_id=workspace.id,
+                document_id=document.id,
+                document_version_id=version.id,
+                chunk_id="chunk-1",
+                score=0.9,
+            ),
+            vector_result(
+                workspace_id=workspace.id,
+                document_id=document.id,
+                document_version_id=version.id,
+                chunk_id="chunk-1",
+                score=0.8,
+            ),
+            vector_result(
+                workspace_id=workspace.id,
+                document_id=document.id,
+                document_version_id=version.id,
+                chunk_id="inactive",
+                is_active=False,
+            ),
             vector_result(workspace_id="other-workspace", chunk_id="other"),
-            vector_result(workspace_id=workspace.id, chunk_id="chunk-2", score=0.7),
+            vector_result(
+                workspace_id=workspace.id,
+                document_id=document.id,
+                document_version_id=version.id,
+                chunk_id="chunk-2",
+                score=0.7,
+            ),
         ]
     )
     service = retrieval_service(db_session, vector_index=vector_index)
@@ -154,8 +189,15 @@ def test_retrieval_limits_chunks_for_prompt_context(db_session) -> None:
     user = create_user(db_session)
     workspace = create_workspace(db_session)
     create_membership(db_session, user=user, workspace=workspace, role="member")
+    document, version = create_ready_active_version(db_session, workspace=workspace, user=user)
     results = [
-        vector_result(workspace_id=workspace.id, chunk_id=f"chunk-{index}", score=1.0 - index / 100)
+        vector_result(
+            workspace_id=workspace.id,
+            document_id=document.id,
+            document_version_id=version.id,
+            chunk_id=f"chunk-{index}",
+            score=1.0 - index / 100,
+        )
         for index in range(get_settings().retrieval.max_context_chunks + 2)
     ]
     service = retrieval_service(db_session, vector_index=FakeVectorIndex(results))
@@ -190,6 +232,8 @@ def vector_result(
     *,
     workspace_id: str,
     chunk_id: str,
+    document_id: str = "document-1",
+    document_version_id: str = "version-1",
     score: float = 0.9,
     is_active: bool = True,
 ) -> VectorIndexResult:
@@ -198,8 +242,8 @@ def vector_result(
         score=score,
         payload={
             "workspace_id": workspace_id,
-            "document_id": "document-1",
-            "document_version_id": "version-1",
+            "document_id": document_id,
+            "document_version_id": document_version_id,
             "chunk_id": chunk_id,
             "text": f"text for {chunk_id}",
             "title": "Policy",
@@ -209,3 +253,11 @@ def vector_result(
             "is_active": is_active,
         },
     )
+
+
+def create_ready_active_version(db_session, *, workspace, user):
+    document = create_document(db_session, workspace=workspace, created_by=user)
+    version = create_document_version(db_session, document=document, created_by=user, version_number=1, is_active=True)
+    version.processing_status = "ready"
+    db_session.flush()
+    return document, version

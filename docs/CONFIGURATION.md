@@ -15,13 +15,13 @@ Recommended files:
 - `.env.local`
 - `.env.test`
 - `.env.docker`
-- `.env.production`
+- `.env.production` (reserved for a future production deployment)
 
-The exact loader implementation may vary, but the system must support:
+The current loader supports:
 
 - base config,
-- environment-specific overrides,
-- secret injection outside repository when needed.
+- environment-specific overrides via `.env.<APP_ENV>`,
+- local Docker overrides through Compose env files.
 
 ## Example configuration groups
 
@@ -130,7 +130,7 @@ Validate:
 ## Secrets
 
 Secrets should not be committed.
-Production secrets should be injected via secure deployment configuration, not repository `.env.production`.
+For the current local-only app, local `.env` files are acceptable for developer setup. If production deployment is introduced later, production secrets should be injected outside the repository.
 
 ## Local development requirement
 

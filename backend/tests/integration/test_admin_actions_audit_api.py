@@ -102,5 +102,5 @@ def test_non_admin_cannot_perform_admin_actions_or_create_audit_events(
 
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "workspace_access_denied"
-    assert db_session.query(Audit).count() == 0
-    assert db_session.query(DocumentProcessingJob).count() == 0
+    assert db_session.query(Audit).filter_by(workspace_id=workspace.id).count() == 0
+    assert db_session.query(DocumentProcessingJob).filter_by(document_version_id=version.id).count() == 0

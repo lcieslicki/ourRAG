@@ -104,6 +104,7 @@ export function App() {
                     )}
                     sources={chat.latestSources}
                     chatLogsByMessage={chat.chatLogsByMessage}
+                    chatReadiness={chat.chatReadiness}
                   />
                 )}
               />

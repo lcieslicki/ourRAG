@@ -4,6 +4,8 @@
 
 Prevent data leakage across workspaces while supporting a shared application instance.
 
+This document describes the current local-only security posture. The app is not designed for public exposure or production authentication.
+
 ## Security principles
 
 - Workspace isolation is a hard invariant.
@@ -14,7 +16,7 @@ Prevent data leakage across workspaces while supporting a shared application ins
 
 ## Mandatory isolation rules
 
-- Every protected request must execute under authenticated user context.
+- Protected user-facing requests execute under the local `X-User-Id` development auth shim.
 - Every chat request must validate user membership in the target workspace.
 - Every retrieval query must filter by `workspace_id`.
 - Every document operation must be workspace-scoped.
@@ -52,7 +54,11 @@ Do not trust:
 
 ## Admin actions
 
-Admin operations must be role-checked and audited.
+The current admin surface is intentionally relaxed for local bootstrap, testing, and manual data management.
+
+Some admin/bootstrap endpoints do not require authenticated user context. This is acceptable for the local-only MVP but would be unacceptable for a public or shared deployment.
+
+Document version lifecycle operations and workspace settings updates have stronger role checks and audit records than bootstrap CRUD flows.
 
 Examples:
 - upload,
@@ -63,13 +69,17 @@ Examples:
 
 ## Audit logging
 
-Security-sensitive actions should be auditable:
-- login events if applicable,
-- workspace switching,
-- document uploads,
+Current audit coverage includes:
 - version activation/invalidation,
-- deletion,
-- reindex requests.
+- reindex requests through document services,
+- workspace settings updates,
+- selected destructive bootstrap actions.
+
+Not currently audited:
+- local login/session selection,
+- workspace switching,
+- every denied admin action,
+- every bootstrap CRUD action.
 
 ## Prompt injection awareness
 
@@ -79,6 +89,9 @@ The prompt builder should explicitly frame retrieved content as source material,
 ## Future security areas
 
 Planned later hardening may include:
+- real authentication,
+- strict admin authorization,
+- complete audit coverage,
 - rate limiting,
 - CSP hardening,
 - per-workspace retention policies,

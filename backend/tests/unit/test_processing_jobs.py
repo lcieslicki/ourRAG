@@ -42,7 +42,7 @@ def test_enqueue_is_idempotent_for_existing_active_or_succeeded_job(db_session) 
     assert second.id == first.id
     assert running.id == first.id
     assert succeeded.id == first.id
-    assert db_session.query(DocumentProcessingJob).count() == 1
+    assert db_session.query(DocumentProcessingJob).filter_by(document_version_id=version.id).count() == 1
 
 
 def test_enqueue_after_failed_job_creates_new_retryable_job(db_session) -> None:

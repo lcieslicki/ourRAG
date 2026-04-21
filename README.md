@@ -1,6 +1,8 @@
 # ourRAG
 
-`ourRAG` is a multi-tenant document intelligence platform focused on internal company knowledge chat in Polish, built around Retrieval-Augmented Generation (RAG).
+`ourRAG` is a local-first document intelligence platform focused on internal company knowledge chat in Polish, built around Retrieval-Augmented Generation (RAG).
+
+The current project target is local use only. The app keeps workspace scoping and retrieval safety, but it does not aim to provide production-grade authentication or hardened admin security.
 
 ## Product goals
 
@@ -11,7 +13,7 @@ The system is designed to:
 - support conversation memory so users can continue topics naturally,
 - show sources used to build the answer,
 - support document versioning and invalidation,
-- run on a single VPS with Docker-managed services,
+- run locally with Docker-managed services,
 - start with Markdown (`.md`) ingestion and evolve toward PDF, TXT, and DOCX.
 
 ## MVP scope
@@ -25,21 +27,21 @@ The MVP includes:
 - Qdrant for vector search,
 - Ollama running locally with Bielik as the generation model,
 - local filesystem storage for uploaded files,
-- multi-tenant isolation using explicit workspace context,
+- workspace isolation using explicit workspace context,
 - asynchronous ingestion and indexing,
 - source attribution in responses,
 - conversation memory using recent messages and rolling summaries.
 
 ## Key product assumptions
 
-- A single application instance serves many workspaces.
+- A single local application instance can serve many workspaces.
 - A user may belong to many workspaces.
 - A conversation belongs to exactly one workspace.
 - The user must explicitly select the active workspace before chatting.
 - Retrieval is always scoped to the active workspace.
 - Documents are versioned.
 - Only active document versions are used for standard answers.
-- Older versions may be invalidated by an administrator.
+- Older versions may be invalidated from the local admin surface.
 - Hybrid search and reranking are planned extensions, not MVP features.
 - English language support is a future extension; MVP is Polish-first.
 
@@ -82,8 +84,8 @@ docs/
 
 ## Guiding principles
 
-- Keep the system pragmatic and easy to operate on a single VPS.
-- Make tenant isolation a hard invariant.
+- Keep the system pragmatic and easy to operate locally.
+- Make workspace-scoped retrieval a hard invariant.
 - Keep frontend thin; backend is the source of truth.
 - Keep all runtime configuration in environment variables.
 - Design every component for testability.

@@ -64,7 +64,9 @@ Behavior:
 
 ### Unauthorized admin action
 Behavior:
-- reject and audit.
+- for user-facing and version lifecycle operations, reject through role checks,
+- local bootstrap admin endpoints may be intentionally relaxed,
+- complete denial audit is not implemented in the local-only MVP.
 
 ## Memory failures
 
@@ -86,3 +88,5 @@ For most failures:
 - expose status in admin view,
 - support retry where safe,
 - preserve audit trail.
+
+Current implementation records ingestion failures in processing jobs and keeps document versions out of `ready` state until indexing succeeds. Full audit coverage is partial.

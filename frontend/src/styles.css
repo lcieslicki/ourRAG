@@ -314,6 +314,92 @@ button {
   padding: 10px 24px;
 }
 
+.chat-readiness {
+  display: grid;
+  gap: 10px;
+  border-bottom: 1px solid #d7dde3;
+  padding: 12px 24px;
+}
+
+.chat-readiness-header {
+  display: grid;
+  gap: 2px;
+}
+
+.chat-readiness-header strong {
+  font-size: 14px;
+}
+
+.chat-readiness-header span {
+  color: #51606f;
+  font-size: 13px;
+}
+
+.chat-readiness-ready {
+  background: #eef8f1;
+}
+
+.chat-readiness-loading {
+  background: #eef6f8;
+}
+
+.chat-readiness-error {
+  background: #fff1f0;
+}
+
+.chat-readiness-list {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chat-readiness-details summary {
+  cursor: pointer;
+  color: #344253;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.chat-readiness-details[open] summary {
+  margin-bottom: 8px;
+}
+
+.chat-readiness-item {
+  display: grid;
+  gap: 2px;
+  border-left: 3px solid #c8d0d9;
+  padding-left: 8px;
+}
+
+.chat-readiness-item-label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.chat-readiness-item-hint {
+  color: #51606f;
+  font-size: 12px;
+}
+
+.chat-readiness-item-ok {
+  border-left-color: #3f7f4a;
+}
+
+.chat-readiness-item-loading {
+  border-left-color: #8a1f17;
+}
+
+.chat-readiness-item-loading .chat-readiness-item-label,
+.chat-readiness-item-loading .chat-readiness-item-hint {
+  color: #8a1f17;
+}
+
+.chat-readiness-item-error {
+  border-left-color: #8a1f17;
+}
+
 .error-banner {
   background: #fff1f0;
   color: #8a1f17;

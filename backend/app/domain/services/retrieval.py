@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.domain.embeddings import EmbeddingService
 from app.domain.errors import DocumentAccessDenied
-from app.domain.models import Document
+from app.domain.models import Document, DocumentVersion
 from app.domain.services.access import WorkspaceAccessService
 from app.infrastructure.vector_index import VectorIndexQuery, VectorIndexResult
 
@@ -153,6 +153,7 @@ class RetrievalService:
     def _package_results(self, *, workspace_id: str, results: list[VectorIndexResult]) -> list[RetrievedChunk]:
         chunks: list[RetrievedChunk] = []
         seen_chunk_ids: set[str] = set()
+        active_versions = self._active_version_document_ids(workspace_id=workspace_id, results=results)
 
         for result in results:
             payload = result.payload
@@ -160,6 +161,11 @@ class RetrievalService:
                 continue
 
             if payload.get("is_active") is not True:
+                continue
+
+            document_version_id = str(payload.get("document_version_id") or "")
+            document_id = str(payload.get("document_id") or "")
+            if active_versions.get(document_version_id) != document_id:
                 continue
 
             chunk_id = str(payload.get("chunk_id") or result.id)
@@ -171,8 +177,8 @@ class RetrievalService:
                 RetrievedChunk(
                     chunk_id=chunk_id,
                     chunk_text=str(payload.get("text") or ""),
-                    document_id=str(payload.get("document_id") or ""),
-                    document_version_id=str(payload.get("document_version_id") or ""),
+                    document_id=document_id,
+                    document_version_id=document_version_id,
                     document_title=str(payload.get("title") or ""),
                     section_path=tuple(payload.get("section_path") or ()),
                     score=result.score,
@@ -184,6 +190,29 @@ class RetrievalService:
             )
 
         return chunks
+
+    def _active_version_document_ids(self, *, workspace_id: str, results: list[VectorIndexResult]) -> dict[str, str]:
+        version_ids = {
+            str(result.payload.get("document_version_id"))
+            for result in results
+            if result.payload.get("workspace_id") == workspace_id and result.payload.get("document_version_id")
+        }
+        if not version_ids:
+            return {}
+
+        rows = self.session.execute(
+            select(DocumentVersion.id, DocumentVersion.document_id)
+            .join(Document, DocumentVersion.document_id == Document.id)
+            .where(
+                Document.workspace_id == workspace_id,
+                Document.status == "active",
+                DocumentVersion.id.in_(version_ids),
+                DocumentVersion.is_active.is_(True),
+                DocumentVersion.is_invalidated.is_(False),
+                DocumentVersion.processing_status == "ready",
+            )
+        )
+        return {version_id: document_id for version_id, document_id in rows}
 
     def _emit(self, event: str, payload: dict[str, Any]) -> None:
         if self.debug_hook:

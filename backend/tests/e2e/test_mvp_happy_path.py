@@ -88,15 +88,23 @@ class InMemoryVectorIndex:
 
 
 class GroundedFakeGateway:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        answer: str = "Vacation leave is requested through the HR portal and approved by a manager. [S1]",
+        expected_prompt_fragments: list[str] | None = None,
+    ) -> None:
         self.requests = []
+        self.answer = answer
+        self.expected_prompt_fragments = expected_prompt_fragments or []
 
     def generate(self, request):
         self.requests.append(request)
         prompt_text = "\n\n".join(message.content for message in request.messages)
-        assert "Employees request vacation leave through the HR portal." in prompt_text
+        for fragment in self.expected_prompt_fragments:
+            assert fragment in prompt_text
         return GenerationResponse(
-            text="Vacation leave is requested through the HR portal and approved by a manager. [S1]",
+            text=self.answer,
             model="fake-bielik-e2e",
             provider="fake",
             finish_reason="stop",
@@ -140,7 +148,7 @@ def test_mvp_upload_process_chat_happy_path(db_session, tmp_path) -> None:
     create_membership(db_session, user=admin, workspace=workspace, role="admin")
     embedding_service = DeterministicEmbeddingService()
     vector_index = InMemoryVectorIndex()
-    gateway = GroundedFakeGateway()
+    gateway = GroundedFakeGateway(expected_prompt_fragments=["Employees request vacation leave through the HR portal."])
     client = client_with_dependencies(db_session, tmp_path, embedding_service, vector_index, gateway)
     fixture = Path(__file__).parents[1] / "fixtures" / "retrieval" / "acme_hr_handbook.md"
 
@@ -213,3 +221,328 @@ def test_mvp_upload_process_chat_happy_path(db_session, tmp_path) -> None:
     assert source["section_path"]
     assert "vacation" in source["snippet"].lower()
     assert gateway.requests
+
+
+def test_e2e_tenant_isolation_returns_only_active_workspace_sources(db_session, tmp_path) -> None:
+    user = create_user(db_session, email_prefix="tenant-admin")
+    workspace_a = create_workspace(db_session, slug_prefix="acme-hr")
+    workspace_b = create_workspace(db_session, slug_prefix="beta-hr")
+    create_membership(db_session, user=user, workspace=workspace_a, role="admin")
+    create_membership(db_session, user=user, workspace=workspace_b, role="admin")
+    embedding_service = DeterministicEmbeddingService()
+    vector_index = InMemoryVectorIndex()
+    gateway = GroundedFakeGateway(answer="Acme vacation requests use the Acme HR portal. [S1]")
+    client = client_with_dependencies(db_session, tmp_path, embedding_service, vector_index, gateway)
+
+    try:
+        acme = upload_markdown(
+            client,
+            user_id=user.id,
+            workspace_id=workspace_a.id,
+            title="Acme HR Handbook",
+            file_name="hr_acme_handbook.md",
+            content="# HR\n\nAcme vacation requests use the Acme HR portal.\n",
+        )
+        beta = upload_markdown(
+            client,
+            user_id=user.id,
+            workspace_id=workspace_b.id,
+            title="Beta HR Handbook",
+            file_name="hr_beta_handbook.md",
+            content="# HR\n\nBeta vacation requests use the Beta HR desk.\n",
+        )
+        process_ingestion(db_session, tmp_path, embedding_service, vector_index)
+        conversation_id = create_chat_conversation(client, user_id=user.id, workspace_id=workspace_a.id)
+        response = send_chat(
+            client,
+            user_id=user.id,
+            workspace_id=workspace_a.id,
+            conversation_id=conversation_id,
+            message="How do I request vacation?",
+            scope={"mode": "category", "category": "HR"},
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 200
+    sources = response.json()["assistant_message"]["sources"]
+    assert sources
+    assert {source["document_id"] for source in sources} == {acme["document_id"]}
+    assert beta["document_id"] not in {source["document_id"] for source in sources}
+
+
+def test_e2e_version_invalidation_returns_only_active_version_sources(db_session, tmp_path) -> None:
+    user = create_user(db_session, email_prefix="version-admin")
+    workspace = create_workspace(db_session, slug_prefix="version-hr")
+    create_membership(db_session, user=user, workspace=workspace, role="admin")
+    embedding_service = DeterministicEmbeddingService()
+    vector_index = InMemoryVectorIndex()
+    gateway = GroundedFakeGateway(answer="Use the new HR portal for vacation requests. [S1]")
+    client = client_with_dependencies(db_session, tmp_path, embedding_service, vector_index, gateway)
+
+    try:
+        first = upload_markdown(
+            client,
+            user_id=user.id,
+            workspace_id=workspace.id,
+            title="Vacation Policy",
+            file_name="hr_vacation_policy_v1.md",
+            content="# Vacation\n\nOld vacation requests use legacy email.\n",
+        )
+        process_ingestion(db_session, tmp_path, embedding_service, vector_index)
+        second = upload_markdown(
+            client,
+            user_id=user.id,
+            workspace_id=workspace.id,
+            title="Vacation Policy",
+            file_name="hr_vacation_policy_v2.md",
+            content="# Vacation\n\nNew vacation requests use the new HR portal.\n",
+            document_id=first["document_id"],
+        )
+        process_ingestion(db_session, tmp_path, embedding_service, vector_index)
+        invalidate = client.post(
+            f"/api/documents/{first['document_id']}/versions/{first['document_version_id']}/invalidate",
+            headers={"X-User-Id": user.id},
+            json={"reason": "superseded"},
+        )
+        assert invalidate.status_code == 200
+        conversation_id = create_chat_conversation(client, user_id=user.id, workspace_id=workspace.id)
+        response = send_chat(
+            client,
+            user_id=user.id,
+            workspace_id=workspace.id,
+            conversation_id=conversation_id,
+            message="How do I request vacation now?",
+            scope={"mode": "category", "category": "HR"},
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 200
+    sources = response.json()["assistant_message"]["sources"]
+    assert sources
+    assert {source["document_version_id"] for source in sources} == {second["document_version_id"]}
+    assert first["document_version_id"] not in {source["document_version_id"] for source in sources}
+    assert "legacy email" not in prompt_text(gateway.requests[-1])
+
+
+def test_e2e_category_filtering_limits_sources_to_requested_category(db_session, tmp_path) -> None:
+    user = create_user(db_session, email_prefix="category-admin")
+    workspace = create_workspace(db_session, slug_prefix="category-workspace")
+    create_membership(db_session, user=user, workspace=workspace, role="admin")
+    embedding_service = DeterministicEmbeddingService()
+    vector_index = InMemoryVectorIndex()
+    gateway = GroundedFakeGateway(answer="Vacation requests are handled by HR. [S1]")
+    client = client_with_dependencies(db_session, tmp_path, embedding_service, vector_index, gateway)
+
+    try:
+        hr = upload_markdown(
+            client,
+            user_id=user.id,
+            workspace_id=workspace.id,
+            title="HR Handbook",
+            file_name="hr_handbook.md",
+            content="# HR\n\nVacation requests go through HR.\n",
+        )
+        it = upload_markdown(
+            client,
+            user_id=user.id,
+            workspace_id=workspace.id,
+            title="IT Onboarding",
+            file_name="it_onboarding.md",
+            content="# IT\n\nIncident reports go through the IT service desk.\n",
+        )
+        process_ingestion(db_session, tmp_path, embedding_service, vector_index)
+        conversation_id = create_chat_conversation(client, user_id=user.id, workspace_id=workspace.id)
+        response = send_chat(
+            client,
+            user_id=user.id,
+            workspace_id=workspace.id,
+            conversation_id=conversation_id,
+            message="How are requests handled?",
+            scope={"mode": "category", "category": "HR"},
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 200
+    sources = response.json()["assistant_message"]["sources"]
+    assert sources
+    assert {source["document_id"] for source in sources} == {hr["document_id"]}
+    assert it["document_id"] not in {source["document_id"] for source in sources}
+
+
+def test_e2e_multi_workspace_user_switching_keeps_contexts_separate(db_session, tmp_path) -> None:
+    user = create_user(db_session, email_prefix="switch-admin")
+    workspace_a = create_workspace(db_session, slug_prefix="switch-a")
+    workspace_b = create_workspace(db_session, slug_prefix="switch-b")
+    create_membership(db_session, user=user, workspace=workspace_a, role="admin")
+    create_membership(db_session, user=user, workspace=workspace_b, role="admin")
+    embedding_service = DeterministicEmbeddingService()
+    vector_index = InMemoryVectorIndex()
+    gateway = GroundedFakeGateway(answer="Workspace-specific answer. [S1]")
+    client = client_with_dependencies(db_session, tmp_path, embedding_service, vector_index, gateway)
+
+    try:
+        doc_a = upload_markdown(
+            client,
+            user_id=user.id,
+            workspace_id=workspace_a.id,
+            title="Workspace A Handbook",
+            file_name="hr_workspace_a.md",
+            content="# HR\n\nWorkspace A vacation requests use Portal A.\n",
+        )
+        doc_b = upload_markdown(
+            client,
+            user_id=user.id,
+            workspace_id=workspace_b.id,
+            title="Workspace B Handbook",
+            file_name="hr_workspace_b.md",
+            content="# HR\n\nWorkspace B vacation requests use Portal B.\n",
+        )
+        process_ingestion(db_session, tmp_path, embedding_service, vector_index)
+        conversation_a = create_chat_conversation(client, user_id=user.id, workspace_id=workspace_a.id)
+        conversation_b = create_chat_conversation(client, user_id=user.id, workspace_id=workspace_b.id)
+        response_a = send_chat(
+            client,
+            user_id=user.id,
+            workspace_id=workspace_a.id,
+            conversation_id=conversation_a,
+            message="Where do vacation requests go?",
+            scope={"mode": "category", "category": "HR"},
+        )
+        response_b = send_chat(
+            client,
+            user_id=user.id,
+            workspace_id=workspace_b.id,
+            conversation_id=conversation_b,
+            message="Where do vacation requests go?",
+            scope={"mode": "category", "category": "HR"},
+        )
+    finally:
+        clear_overrides()
+
+    assert response_a.status_code == 200
+    assert response_b.status_code == 200
+    assert {source["document_id"] for source in response_a.json()["assistant_message"]["sources"]} == {doc_a["document_id"]}
+    assert {source["document_id"] for source in response_b.json()["assistant_message"]["sources"]} == {doc_b["document_id"]}
+
+
+def test_e2e_follow_up_memory_continuity_includes_recent_conversation_context(db_session, tmp_path) -> None:
+    user = create_user(db_session, email_prefix="memory-admin")
+    workspace = create_workspace(db_session, slug_prefix="memory-hr")
+    create_membership(db_session, user=user, workspace=workspace, role="admin")
+    embedding_service = DeterministicEmbeddingService()
+    vector_index = InMemoryVectorIndex()
+    gateway = GroundedFakeGateway(answer="Remote work needs manager approval. [S1]")
+    client = client_with_dependencies(db_session, tmp_path, embedding_service, vector_index, gateway)
+
+    try:
+        upload_markdown(
+            client,
+            user_id=user.id,
+            workspace_id=workspace.id,
+            title="Remote Work Policy",
+            file_name="hr_remote_work.md",
+            content="# Remote Work\n\nRemote work requires manager approval and a weekly team check-in.\n",
+        )
+        process_ingestion(db_session, tmp_path, embedding_service, vector_index)
+        conversation_id = create_chat_conversation(client, user_id=user.id, workspace_id=workspace.id)
+        first = send_chat(
+            client,
+            user_id=user.id,
+            workspace_id=workspace.id,
+            conversation_id=conversation_id,
+            message="What is the remote work policy?",
+            scope={"mode": "category", "category": "HR"},
+        )
+        assert first.status_code == 200
+        second = send_chat(
+            client,
+            user_id=user.id,
+            workspace_id=workspace.id,
+            conversation_id=conversation_id,
+            message="What approval does it need?",
+            scope={"mode": "category", "category": "HR"},
+        )
+    finally:
+        clear_overrides()
+
+    assert second.status_code == 200
+    assert len(gateway.requests) == 2
+    second_prompt = prompt_text(gateway.requests[-1])
+    assert "What is the remote work policy?" in second_prompt
+    assert "Remote work needs manager approval. [S1]" in second_prompt
+    assert "What approval does it need?" in second_prompt
+
+
+def upload_markdown(
+    client: TestClient,
+    *,
+    user_id: str,
+    workspace_id: str,
+    title: str,
+    file_name: str,
+    content: str,
+    document_id: str | None = None,
+) -> dict:
+    data = {
+        "workspace_id": workspace_id,
+        "title": title,
+        "tags": "e2e",
+    }
+    if document_id:
+        data["document_id"] = document_id
+
+    response = client.post(
+        "/api/documents/upload",
+        headers={"X-User-Id": user_id},
+        data=data,
+        files={"file": (file_name, content.encode("utf-8"), "text/markdown")},
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def process_ingestion(db_session, tmp_path, embedding_service, vector_index) -> None:
+    processed = IngestionJobRunner(
+        db_session,
+        storage=LocalFileStorage(tmp_path),
+        embedding_service=embedding_service,
+        vector_index=vector_index,
+    ).run_until_idle()
+    assert processed
+    assert all(job.status == "succeeded" for job in processed)
+
+
+def create_chat_conversation(client: TestClient, *, user_id: str, workspace_id: str) -> str:
+    response = client.post(
+        "/api/conversations",
+        headers={"X-User-Id": user_id},
+        json={"workspace_id": workspace_id, "title": "E2E question"},
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
+def send_chat(
+    client: TestClient,
+    *,
+    user_id: str,
+    workspace_id: str,
+    conversation_id: str,
+    message: str,
+    scope: dict | None = None,
+):
+    payload = {
+        "workspace_id": workspace_id,
+        "conversation_id": conversation_id,
+        "message": message,
+    }
+    if scope:
+        payload["scope"] = scope
+    return client.post("/api/chat", headers={"X-User-Id": user_id}, json=payload)
+
+
+def prompt_text(request) -> str:
+    return "\n\n".join(message.content for message in request.messages)

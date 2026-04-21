@@ -13,6 +13,7 @@ services:
       - qdrant
       - redis
     restart: unless-stopped
+    mem_limit: 512m
 
   frontend:
     build: ./frontend
@@ -22,6 +23,7 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+    mem_limit: 256m
 
   postgres:
     image: postgres:16-alpine
@@ -34,6 +36,7 @@ services:
     ports:
       - "5432:5432"
     restart: unless-stopped
+    mem_limit: 512m
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -42,6 +45,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     restart: unless-stopped
+    mem_limit: 1g
 
   ollama:
     image: ollama/ollama:latest
@@ -56,6 +60,7 @@ services:
     ports:
       - "6379:6379"
     restart: unless-stopped
+    mem_limit: 256m
 
 volumes:
   postgres_data:

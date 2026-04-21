@@ -43,7 +43,8 @@ For this project, those properties map well to the documented architecture:
 
 ### Queue / async jobs
 - **Redis**
-- worker process compatible with the chosen job runner
+- persisted processing jobs with an ingestion runner
+- optional future worker process if local operation needs continuous background processing
 
 ### AI / RAG integrations
 - **Qdrant client**
@@ -164,7 +165,12 @@ When using Codex, the backend implementation should start with:
 7. embeddings and Qdrant
 8. retrieval orchestration
 9. chat orchestration
-10. admin and testing hardening
+10. local admin and testing hardening
+
+Current implementation note:
+- the backend contains the ingestion runner and persisted processing jobs,
+- Docker Compose does not currently start a separate worker service,
+- admin/bootstrap APIs are optimized for local-only operation, not public deployment.
 
 ## Documentation integration note
 

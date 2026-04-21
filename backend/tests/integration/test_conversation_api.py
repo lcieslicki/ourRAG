@@ -10,7 +10,14 @@ from app.domain.llm import GenerationResponse
 from app.domain.models import Message
 from app.infrastructure.vector_index import VectorIndexResult
 from app.main import app
-from tests.factories import create_conversation, create_document, create_membership, create_user, create_workspace
+from tests.factories import (
+    create_conversation,
+    create_document,
+    create_document_version,
+    create_membership,
+    create_user,
+    create_workspace,
+)
 
 
 class FakeGateway:
@@ -70,9 +77,16 @@ class FakeEmbeddingService:
 
 
 class FakeVectorIndex:
-    def __init__(self, *, workspace_id: str | None = None, document_id: str = "document-1") -> None:
+    def __init__(
+        self,
+        *,
+        workspace_id: str | None = None,
+        document_id: str = "document-1",
+        document_version_id: str = "version-1",
+    ) -> None:
         self.workspace_id = workspace_id
         self.document_id = document_id
+        self.document_version_id = document_version_id
         self.queries = []
 
     def query(self, query):
@@ -88,7 +102,7 @@ class FakeVectorIndex:
                 payload={
                     "workspace_id": self.workspace_id,
                     "document_id": self.document_id,
-                    "document_version_id": "version-1",
+                    "document_version_id": self.document_version_id,
                     "chunk_id": "chunk-1",
                     "text": "Vacation requests must be submitted in the HR portal.",
                     "title": "HR Handbook",
@@ -273,10 +287,12 @@ def test_chat_appends_user_and_assistant_messages(db_session) -> None:
     user = create_user(db_session)
     workspace = create_workspace(db_session)
     create_membership(db_session, user=user, workspace=workspace, role="member")
+    document = create_document(db_session, workspace=workspace, created_by=user)
+    version = create_document_version(db_session, document=document, created_by=user, version_number=1, is_active=True)
     conversation = create_conversation(db_session, workspace=workspace, user=user)
     gateway = FakeGateway()
     embeddings = FakeEmbeddingService()
-    vector_index = FakeVectorIndex(workspace_id=workspace.id)
+    vector_index = FakeVectorIndex(workspace_id=workspace.id, document_id=document.id, document_version_id=version.id)
     client = client_with_dependencies(db_session, gateway, embeddings, vector_index)
 
     try:

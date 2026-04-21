@@ -34,7 +34,8 @@ class OllamaGateway:
         self.keep_alive = keep_alive
         self.max_retries = max_retries
         self.retry_backoff_seconds = retry_backoff_seconds
-        self._client = client
+        self._client = client or httpx.Client(timeout=timeout_seconds)
+        self._owns_client = client is None
         self._semaphore = BoundedSemaphore(max_concurrency)
 
     @classmethod
@@ -104,10 +105,8 @@ class OllamaGateway:
         raise OllamaGatewayError(f"Ollama generation request failed: {last_error}") from last_error
 
     def _send(self, payload: dict) -> GenerationResponse:
-        client = self._client or httpx.Client(timeout=self.timeout_seconds)
-
         try:
-            response = client.post(f"{self.base_url}/api/chat", json=payload)
+            response = self._client.post(f"{self.base_url}/api/chat", json=payload)
             response.raise_for_status()
         except httpx.TimeoutException:
             raise
@@ -115,11 +114,39 @@ class OllamaGateway:
             raise OllamaGatewayError(f"Ollama generation request failed with status {exc.response.status_code}.") from exc
         except httpx.HTTPError as exc:
             raise OllamaGatewayError(f"Ollama generation request failed: {exc}") from exc
-        finally:
-            if self._client is None:
-                client.close()
 
         return parse_ollama_chat_response(response.json())
+
+    def readiness_check(self) -> tuple[bool, str]:
+        try:
+            response = self._client.get(f"{self.base_url}/api/tags")
+            response.raise_for_status()
+            payload = response.json()
+            models = payload.get("models")
+            if not isinstance(models, list):
+                raise OllamaGatewayError("Ollama tags response did not include a models list.")
+
+            configured_model = self.model
+            available_names = {
+                str(model.get("name") or "").strip()
+                for model in models
+                if isinstance(model, dict)
+            }
+            if configured_model in available_names:
+                return True, "ready"
+
+            if any(name.startswith(f"{configured_model}:") for name in available_names):
+                return True, "ready"
+
+            return False, "model_missing"
+        except httpx.TimeoutException as exc:
+            raise OllamaGatewayError("Ollama readiness check timed out.") from exc
+        except httpx.HTTPStatusError as exc:
+            raise OllamaGatewayError(
+                f"Ollama readiness check failed with status {exc.response.status_code}."
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise OllamaGatewayError(f"Ollama readiness check failed: {exc}") from exc
 
 
 def serialize_message(message: PromptMessage) -> dict:

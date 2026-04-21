@@ -9,7 +9,13 @@
 - Responses should include source metadata where relevant.
 
 ## Authentication
-Authentication strategy is implementation-specific, but all protected endpoints require authenticated user context.
+The current local MVP uses a lightweight development auth shim:
+
+- protected API calls pass `X-User-Id`,
+- the backend resolves that value as the current user,
+- missing `X-User-Id` returns `401`.
+
+This is not production authentication. It is sufficient for the local-only app and deterministic testing.
 
 ## Suggested endpoint groups
 
@@ -92,16 +98,25 @@ Example request:
         "document_version_id": "ver_2",
         "section_path": "HR > Vacation Leave",
         "snippet": "Vacation leave requests must be submitted in the HR system.",
-        "score": 0.92
+        "score": 0.92,
+        "category": "HR",
+        "chunk_id": "ver_2:0"
       }
     ]
   },
-  "usage": {
-    "retrieval_latency_ms": 42,
-    "llm_latency_ms": 810
-  }
+  "usage": {}
 }
 ```
+
+`usage` is currently reserved for future timing and token metrics.
+
+### GET /api/chat/ws/{conversation_id}
+WebSocket stream for local chat processing events.
+
+Query parameters:
+- `user_id`
+
+Events are intended for UI diagnostics. Sensitive text fields are redacted before being sent to the frontend.
 
 ## Document endpoints
 
@@ -113,7 +128,7 @@ multipart file upload plus metadata:
 - workspace_id
 - optional document_id
 - title
-- category
+- category (accepted by the API, but the current implementation derives category from the filename prefix, for example `hr_policy.md` -> `HR`)
 - tags
 
 ### GET /api/documents?workspace_id={id}
@@ -133,6 +148,35 @@ Trigger reindex for a document version.
 
 ## Admin endpoints
 
+The current admin surface is designed for local operation and bootstrap workflows. Some `/api/admin/*` endpoints are intentionally relaxed and may not require `X-User-Id`.
+
+Admin document upload and folder indexing can trigger background processing inside the backend process. There is no separate production-grade admin authorization layer yet.
+
+### Bootstrap and local admin endpoints
+
+Current local endpoints include:
+
+- `GET /api/admin/data-info`
+- `GET /api/admin/users`
+- `POST /api/admin/users`
+- `GET /api/admin/users/{user_id}`
+- `DELETE /api/admin/users/{user_id}`
+- `GET /api/admin/workspaces`
+- `POST /api/admin/workspaces`
+- `GET /api/admin/workspaces/{workspace_id}`
+- `DELETE /api/admin/workspaces/{workspace_id}`
+- `PUT /api/admin/workspaces/{workspace_id}/data-folder`
+- `GET /api/admin/workspaces/{workspace_id}/members`
+- `POST /api/admin/workspaces/{workspace_id}/members`
+- `GET /api/admin/workspaces/{workspace_id}/documents`
+- `POST /api/admin/workspaces/{workspace_id}/documents/upload`
+- `POST /api/admin/workspaces/{workspace_id}/documents/index-folder`
+- `GET /api/admin/workspaces/{workspace_id}/documents/{document_id}/index-diagnostics`
+- `DELETE /api/admin/workspaces/{workspace_id}/documents/{document_id}`
+- `DELETE /api/admin/workspaces/{workspace_id}/documents`
+- `POST /api/admin/workspaces/{workspace_id}/documents/reindex-all`
+- `POST /api/admin/workspaces/{workspace_id}/processing-jobs/{job_id}/retry`
+
 ### GET /api/admin/workspaces/{workspace_id}/processing-jobs
 List ingestion jobs.
 
@@ -147,11 +191,11 @@ Update workspace settings such as:
 
 ## Error format
 
-Suggested uniform shape:
+Current FastAPI error shape:
 
 ```json
 {
-  "error": {
+  "detail": {
     "code": "workspace_access_denied",
     "message": "You do not have access to this workspace."
   }

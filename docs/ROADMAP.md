@@ -60,9 +60,13 @@ Deliverables:
 
 - stronger observability,
 - richer E2E coverage,
-- security audits,
+- optional security audits if the project stops being local-only,
 - performance tuning,
-- deployment hardening.
+- deployment hardening if production deployment becomes a goal.
+
+## Current local-only decision
+
+The implemented MVP targets local use. Production authentication, strict admin authorization, and public deployment hardening are intentionally not priorities right now.
 
 ## Planned future features
 

@@ -34,6 +34,8 @@ Real component collaboration tests.
 - embedding pipeline
 - queue and worker orchestration
 
+Current implementation uses persisted processing jobs plus an ingestion runner. Most worker tests execute the runner directly instead of relying on a separate worker container.
+
 ### 3. Contract tests
 Ensure service adapters and interfaces remain stable.
 
@@ -75,6 +77,12 @@ Verify tenant isolation and authorization.
 
 ### 7. End-to-end tests
 Full system tests from API/UI through ingestion and chat.
+
+Current status:
+- backend E2E-style tests live under `backend/tests/e2e/`,
+- they cover upload, ingestion, retrieval, chat, tenant isolation, invalidation, category filtering, workspace switching, and memory continuity,
+- they use deterministic fakes for embeddings, vector index, and LLM to keep tests reliable,
+- full browser/UI E2E against the local Docker stack is still planned.
 
 ## Detailed component test plan
 
@@ -186,3 +194,8 @@ tests/
   quality/
   e2e/
 ```
+
+Repository note:
+- backend tests currently live in `backend/tests/`,
+- frontend tests live in `frontend/tests/`,
+- top-level `tests/e2e/` is reserved for future full-stack Docker/UI scenarios.

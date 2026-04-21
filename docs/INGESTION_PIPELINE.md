@@ -15,7 +15,7 @@ The architecture must remain parser-pluggable from day one.
 ## Pipeline stages
 
 ### 1. Upload
-An admin uploads a file to a selected workspace.
+A local admin uploads a file to a selected workspace.
 
 Backend actions:
 
@@ -25,8 +25,10 @@ Backend actions:
 - store original file on local filesystem,
 - enqueue asynchronous processing job.
 
+The standard document upload endpoint enqueues jobs. Local admin upload and folder indexing may also trigger the ingestion runner through backend background tasks.
+
 ### 2. Parse
-Worker selects parser by file type.
+The ingestion runner selects parser by file type.
 
 For MVP:
 - `MarkdownParser`
@@ -119,6 +121,11 @@ Suggested job types:
 - `index_document`
 - `cleanup_document_vectors`
 - `reindex_document_version`
+
+Current implementation note:
+- jobs are tracked in PostgreSQL,
+- job execution is handled by the backend ingestion runner,
+- Docker Compose does not yet include a separate long-running worker service.
 
 ## Idempotency requirements
 

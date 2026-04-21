@@ -2,11 +2,11 @@
 
 ## High-level architecture
 
-`ourRAG` is a multi-tenant RAG platform composed of:
+`ourRAG` is a local-first RAG platform composed of:
 
 - React frontend with `assistant-ui`,
 - Python backend API,
-- background workers,
+- ingestion job runner,
 - PostgreSQL,
 - Qdrant,
 - Ollama with Bielik,
@@ -28,7 +28,7 @@
    |
    +---------------------------> [ Local File Storage ]
 
-[ Workers ]
+[ Ingestion Job Runner ]
    |--> parse documents
    |--> chunk content
    |--> generate embeddings
@@ -74,8 +74,8 @@ The frontend must not decide:
 
 The backend remains the source of truth.
 
-### 4. Single-instance deployment
-The platform is designed for a single VPS deployment in MVP, using Docker for all core services.
+### 4. Local Docker deployment
+The platform is designed for local use in MVP, using Docker for the core services.
 
 ### 5. Local LLM runtime
 Ollama runs locally in Docker and serves Bielik for answer generation.
@@ -87,7 +87,7 @@ The generation model and embedding model are separate concerns.
 - embeddings: a dedicated embedding model chosen independently.
 
 ### 7. Async ingestion
-Document processing is asynchronous from the start.
+Document processing is represented as persisted jobs from the start.
 
 This includes:
 
@@ -96,6 +96,8 @@ This includes:
 - embedding generation,
 - vector indexing,
 - summary regeneration.
+
+In the current implementation, jobs are executed by an ingestion runner invoked from backend/background flows and tests. A separate long-running worker container is not part of the local stack yet.
 
 ### 8. Versioned documents
 Document versioning is a first-class feature.
@@ -133,13 +135,13 @@ The architecture reserves explicit extension points for:
 9. Frontend renders answer and citations.
 
 ### Ingestion flow
-1. Admin uploads file.
+1. Local admin uploads file.
 2. Backend stores file and metadata.
-3. Worker parses file.
-4. Worker chunks parsed content.
-5. Worker generates embeddings.
-6. Worker indexes chunks into Qdrant.
-7. Worker marks document version as ready.
+3. Ingestion runner parses file.
+4. Ingestion runner chunks parsed content.
+5. Ingestion runner generates embeddings.
+6. Ingestion runner indexes chunks into Qdrant.
+7. Ingestion runner marks document version as ready.
 
 ## Non-goals for MVP
 

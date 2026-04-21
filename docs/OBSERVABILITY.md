@@ -12,6 +12,8 @@ The platform should provide enough visibility to:
 
 ## Metrics to track
 
+The lists below describe desired observability. Current local implementation has structured logs, chat processing events over WebSocket, processing job state, and selected audit records. It does not yet expose a metrics endpoint or tracing backend.
+
 ### API
 - request count
 - error rate
@@ -57,8 +59,12 @@ Log structured events for:
 
 Avoid logging sensitive raw content unnecessarily.
 
+Current chat processing events intentionally redact raw prompts, messages, query text, summaries, and chunk text before sending them to the frontend event stream.
+
 ## Correlation
 Attach correlation identifiers to request and worker flows when possible.
+
+Current implementation has per-conversation and per-message event metadata, but no general request correlation ID middleware yet.
 
 ## Audit visibility
 Admin-facing events should be inspectable for:
@@ -67,6 +73,8 @@ Admin-facing events should be inspectable for:
 - invalidations,
 - reindex operations,
 - destructive actions.
+
+Current audit visibility is partial and focused on version lifecycle, reindex requests, workspace settings changes, and selected destructive bootstrap actions.
 
 ## Future options
 This document intentionally leaves room for future integration with centralized logging and tracing tooling.

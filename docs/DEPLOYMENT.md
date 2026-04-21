@@ -2,31 +2,34 @@
 
 ## MVP deployment target
 
-Single VPS using Docker Compose.
+Local machine using Docker Compose.
+
+The project is currently intended for local use only. Production deployment, public exposure, and hardened admin security are not active goals.
 
 ## Core services
 
 - frontend
 - backend API
-- worker
 - PostgreSQL
 - Qdrant
 - Redis
 - Ollama
 
+The documented ingestion worker exists as backend code, but the current Compose stack does not run a separate `worker` service.
+
 ## Deployment principles
 
-- all services containerized,
+- core services containerized,
 - environment-driven configuration,
 - internal network communication where possible,
 - Ollama not publicly exposed,
 - Qdrant not publicly exposed,
-- only frontend/API entrypoint exposed externally.
+- frontend/API exposed on localhost for local development.
 
 ## Recommended local/prod alignment
 
-Local development should closely mirror production topology.
-Differences should mostly be:
+If production deployment is revisited later, it should be derived from the local topology.
+Expected differences would include:
 
 - environment variables,
 - security hardening,
@@ -59,16 +62,21 @@ Persist at least:
 - keep document and vector stores persistent,
 - reindex only when necessary.
 
-## Initial docker-compose shape
+## Current docker-compose shape
 
 ```text
 frontend
 backend
-worker
 postgres
 qdrant
 redis
 ollama
+```
+
+Potential future shape:
+
+```text
+worker
 ```
 
 ## Secrets and runtime config

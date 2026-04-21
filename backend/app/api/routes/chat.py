@@ -1,4 +1,6 @@
+import asyncio
 from datetime import UTC, datetime
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -21,6 +23,7 @@ from app.infrastructure.llm import OllamaGatewayError
 from app.infrastructure.realtime import ChatProcessingEvent, chat_log_manager
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("", response_model=ChatResponse)
@@ -46,7 +49,7 @@ async def send_chat_message(
                 category=category,
                 stage=stage,
                 status=status,
-                payload=event_payload,
+                payload=safe_event_payload(event_payload),
                 timestamp=datetime.now(UTC).isoformat(),
             )
         )
@@ -66,7 +69,7 @@ async def send_chat_message(
             category=category,
             stage=stage,
             status=event_status,
-            payload=event_payload,
+            payload=safe_event_payload(event_payload),
             timestamp=datetime.now(UTC).isoformat(),
         )
         import asyncio
@@ -74,7 +77,15 @@ async def send_chat_message(
         asyncio.create_task(chat_log_manager.publish(event))
 
     try:
-        await emit("request", "started", "started", {"message": payload.message, "scope": payload.scope})
+        await emit(
+            "request",
+            "started",
+            "started",
+            {
+                "message_length": len(payload.message),
+                "scope": payload.scope,
+            },
+        )
         conversation = conversation_service.get_conversation(
             user_id=current_user.id,
             conversation_id=payload.conversation_id,
@@ -124,7 +135,7 @@ async def send_chat_message(
             "persistence",
             "user_message_saved",
             "completed",
-            {"message_id": user_message.id, "content": user_message.content_text},
+            {"message_id": user_message.id, "content_length": len(user_message.content_text)},
         )
         await emit("memory", "started", "started", {})
         memory = ConversationMemoryService(session=db, settings=settings).build_memory_package(
@@ -138,10 +149,8 @@ async def send_chat_message(
             "completed",
             "completed",
             {
-                "recent_messages": [
-                    {"role": item.role, "content": item.content} for item in memory.prompt_memory.recent_messages
-                ],
-                "summary": memory.prompt_memory.summary,
+                "recent_message_count": len(memory.prompt_memory.recent_messages),
+                "has_summary": memory.prompt_memory.summary is not None,
             },
         )
         await emit("prompt", "started", "started", {})
@@ -160,11 +169,15 @@ async def send_chat_message(
             {
                 "template_version": prompt.template_version,
                 "has_retrieval_context": prompt.has_retrieval_context,
-                "messages": [{"role": message.role, "content": message.content} for message in prompt.messages],
+                "message_count": len(prompt.messages),
+                "roles": [message.role for message in prompt.messages],
             },
         )
-        generation = llm_gateway.generate(
-            GenerationRequest(messages=prompt.messages, metadata={"debug_hook": debug_hook})
+        generation = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: llm_gateway.generate(
+                GenerationRequest(messages=prompt.messages, metadata={"debug_hook": debug_hook})
+            ),
         )
         sources = sources_from_chunks(retrieval.chunks)
         assistant_message = conversation_service.append_assistant_message(
@@ -187,8 +200,8 @@ async def send_chat_message(
             "completed",
             {
                 "message_id": assistant_message.id,
-                "content": assistant_message.content_text,
-                "sources": sources,
+                "content_length": len(assistant_message.content_text),
+                "source_count": len(sources),
             },
         )
         db.commit()
@@ -220,6 +233,14 @@ async def send_chat_message(
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail={"code": "llm_timeout", "message": str(exc)},
+        ) from exc
+    except Exception as exc:
+        db.rollback()
+        logger.exception("chat.request_failed conversation_id=%s workspace_id=%s", payload.conversation_id, active_workspace_id)
+        await emit("error", "request_failed", "failed", {"code": "chat_failed", "error_type": type(exc).__name__})
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "chat_failed", "message": "Chat request failed."},
         ) from exc
 
     return ChatResponse(
@@ -285,3 +306,33 @@ def sources_from_chunks(chunks: tuple[RetrievedChunk, ...]) -> list[dict]:
         }
         for chunk in chunks
     ]
+
+
+SENSITIVE_EVENT_KEYS = {"content", "message", "messages", "prompt", "query", "summary", "text", "text_preview"}
+
+
+def safe_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: safe_event_value(key, value) for key, value in payload.items()}
+
+
+def safe_event_value(key: str, value: Any) -> Any:
+    if key in SENSITIVE_EVENT_KEYS:
+        return redact_value(value)
+
+    if isinstance(value, dict):
+        return {nested_key: safe_event_value(nested_key, nested_value) for nested_key, nested_value in value.items()}
+
+    if isinstance(value, list):
+        return [safe_event_value(key, item) for item in value]
+
+    return value
+
+
+def redact_value(value: Any) -> dict[str, Any]:
+    if isinstance(value, str):
+        return {"redacted": True, "length": len(value)}
+    if isinstance(value, list):
+        return {"redacted": True, "count": len(value)}
+    if isinstance(value, dict):
+        return {"redacted": True, "keys": sorted(str(key) for key in value.keys())}
+    return {"redacted": True}
