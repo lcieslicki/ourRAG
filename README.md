@@ -32,6 +32,20 @@ The MVP includes:
 - source attribution in responses,
 - conversation memory using recent messages and rolling summaries.
 
+## Solution concept and UI
+
+### Solution concept
+
+![ourRAG solution concept](./images/concept.png)
+
+### Chat UI
+
+![ourRAG chat UI](./images/chat.png)
+
+### Admin UI
+
+![ourRAG admin UI](./images/admin.png)
+
 ## Key product assumptions
 
 - A single local application instance can serve many workspaces.
