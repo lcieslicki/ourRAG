@@ -195,6 +195,7 @@ class DocumentService:
         )
         if version.is_invalidated:
             raise DocumentVersionInvalidated("Invalidated document versions cannot be reindexed.")
+        version.processing_status = "processing"
 
         job = DocumentProcessingJobService(self.session).enqueue(
             document_version_id=version.id,

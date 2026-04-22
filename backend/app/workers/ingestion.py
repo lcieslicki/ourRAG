@@ -255,7 +255,7 @@ class IngestionJobRunner:
     def _handle_reindex_document_version(self, job: DocumentProcessingJob) -> None:
         version = self._version_for(job)
         logger.info("ingestion.stage.reindex.start job_id=%s version_id=%s", job.id, version.id)
-        version.processing_status = "pending"
+        version.processing_status = "processing"
         version.indexed_at = None
         version.embedding_model_name = None
         version.embedding_model_version = None

@@ -336,6 +336,7 @@ def list_workspace_documents(workspace_id: str, db: Annotated[Session, Depends(g
                 workspace_id=workspace_id,
                 version_id=latest.id,
             )
+        show_latest_error = latest is not None and latest.processing_status == "failed"
         result.append(AdminDocumentListItemResponse(
             id=doc.id,
             title=doc.title,
@@ -353,8 +354,8 @@ def list_workspace_documents(workspace_id: str, db: Annotated[Session, Depends(g
             is_active=latest.is_active if latest else None,
             is_invalidated=latest.is_invalidated if latest else None,
             qdrant_vector_count=qdrant_vector_count,
-            latest_error_message=latest_failed.error_message if latest_failed else None,
-            latest_error_job_type=latest_failed.job_type if latest_failed else None,
+            latest_error_message=latest_failed.error_message if show_latest_error and latest_failed else None,
+            latest_error_job_type=latest_failed.job_type if show_latest_error and latest_failed else None,
             version_count=len(versions),
         ))
     return result

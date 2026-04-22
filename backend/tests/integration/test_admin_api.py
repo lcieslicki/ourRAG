@@ -119,6 +119,36 @@ def test_admin_can_read_processing_jobs(db_session, tmp_path) -> None:
     assert payload[0]["error_message"] == "embedding unavailable"
 
 
+def test_admin_documents_list_hides_stale_error_while_processing(db_session, tmp_path) -> None:
+    admin = create_user(db_session)
+    workspace = create_workspace(db_session)
+    create_membership(db_session, user=admin, workspace=workspace, role="admin")
+    document = create_document(db_session, workspace=workspace, created_by=admin)
+    version = create_document_version(db_session, document=document, created_by=admin, version_number=1)
+    version.processing_status = "processing"
+    failed = create_processing_job(
+        db_session,
+        document_version=version,
+        job_type="embed_document",
+        status="failed",
+        attempts=1,
+    )
+    failed.error_message = "embedding unavailable"
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.get(f"/api/admin/workspaces/{workspace.id}/documents")
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["id"] == document.id
+    assert payload[0]["latest_processing_status"] == "processing"
+    assert payload[0]["latest_error_message"] is None
+    assert payload[0]["latest_error_job_type"] is None
+
+
 def test_admin_can_read_and_update_workspace_settings_with_audit(db_session, tmp_path) -> None:
     admin = create_user(db_session)
     workspace = create_workspace(db_session)

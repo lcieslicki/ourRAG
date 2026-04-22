@@ -439,7 +439,7 @@ def test_reindex_job_resets_version_and_enqueues_parse(db_session) -> None:
     result = IngestionJobRunner(db_session).run(job.id)
 
     assert result.status == "succeeded"
-    assert version.processing_status == "pending"
+    assert version.processing_status == "processing"
     assert version.indexed_at is None
     assert (
         db_session.query(DocumentProcessingJob)

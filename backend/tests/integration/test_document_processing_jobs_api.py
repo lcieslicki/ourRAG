@@ -48,6 +48,8 @@ def test_reindex_document_version_enqueues_job(db_session, tmp_path) -> None:
     job = db_session.get(DocumentProcessingJob, payload["job_id"])
     assert job is not None
     assert job.document_version_id == version.id
+    db_session.refresh(version)
+    assert version.processing_status == "processing"
 
 
 def test_reindex_document_version_requires_admin_or_owner(db_session, tmp_path) -> None:
