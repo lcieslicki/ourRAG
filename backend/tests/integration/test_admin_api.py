@@ -397,3 +397,21 @@ def test_admin_can_delete_workspace(db_session, tmp_path) -> None:
 
     assert response.status_code == 204
     assert read_after_delete.status_code == 404
+
+
+def test_admin_can_delete_workspace_with_members(db_session, tmp_path) -> None:
+    user = create_user(db_session)
+    workspace = create_workspace(db_session)
+    create_membership(db_session, user=user, workspace=workspace, role="owner")
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.delete(f"/api/admin/workspaces/{workspace.id}")
+        read_after_delete = client.get(f"/api/admin/workspaces/{workspace.id}")
+        user_after_delete = client.get(f"/api/admin/users/{user.id}")
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 204
+    assert read_after_delete.status_code == 404
+    assert user_after_delete.status_code == 200

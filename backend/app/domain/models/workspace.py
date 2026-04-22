@@ -22,7 +22,7 @@ class Workspace(IdMixin, TimestampMixin, Base):
     embedding_model_override: Mapped[str | None] = mapped_column(String(255), nullable=True)
     settings_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
-    memberships = relationship("WorkspaceMembership", back_populates="workspace")
+    memberships = relationship("WorkspaceMembership", back_populates="workspace", passive_deletes=True)
     documents = relationship("Document", back_populates="workspace")
     conversations = relationship("Conversation", back_populates="workspace")
 
