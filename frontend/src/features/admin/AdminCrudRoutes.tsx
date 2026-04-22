@@ -1,5 +1,17 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import {
+  Eye,
+  FileText,
+  FolderSearch,
+  Home,
+  Pencil,
+  Plus,
+  Trash2,
+  Upload,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import type { ApiClient } from "../../lib/api/client";
 import type {
   AdminDocumentListItem,
@@ -7,6 +19,8 @@ import type {
   AdminWorkspaceMemberResponse,
   AdminWorkspaceResponse,
 } from "../../lib/api/types";
+import { Breadcrumbs } from "../../components/Breadcrumbs";
+import { pl } from "../../i18n/pl";
 
 type Props = { apiClient: ApiClient };
 
@@ -46,10 +60,16 @@ function UsersListView({ apiClient }: Props) {
     <div className="admin-panel">
       <AdminHeader />
       <div className="admin-content">
+        <Breadcrumbs
+          items={[
+            { label: pl.breadcrumbs.admin, to: "/admin/workspaces", icon: Home },
+            { label: pl.breadcrumbs.users, icon: Users },
+          ]}
+        />
         <div className="admin-list-block">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h3>Użytkownicy ({users.length})</h3>
-            <Link className="admin-btn-small" to="/admin/users/new">Utwórz nowego użytkownika</Link>
+            <Link className="admin-btn-small" to="/admin/users/new"><Plus size={14} /> Utwórz nowego użytkownika</Link>
           </div>
           {error && <div className="error-banner">{error}</div>}
           {users.length === 0 ? (
@@ -66,7 +86,7 @@ function UsersListView({ apiClient }: Props) {
                     <td>{u.display_name}</td>
                     <td>{u.status}</td>
                     <td style={{ display: "flex", gap: 8 }}>
-                      <Link className="admin-btn-small" to={`/admin/users/${u.id}`}>Podgląd</Link>
+                      <Link className="admin-btn-small" to={`/admin/users/${u.id}`}><Eye size={14} /> Podgląd</Link>
                     </td>
                   </tr>
                 ))}
@@ -105,6 +125,13 @@ function UserCreateView({ apiClient }: Props) {
     <div className="admin-panel">
       <AdminHeader />
       <div className="admin-content">
+        <Breadcrumbs
+          items={[
+            { label: pl.breadcrumbs.admin, to: "/admin/workspaces", icon: Home },
+            { label: pl.breadcrumbs.users, to: "/admin/users", icon: Users },
+            { label: pl.breadcrumbs.new, icon: UserPlus },
+          ]}
+        />
         <div className="admin-form-block">
           <h3>Nowy użytkownik</h3>
           {error && <div className="error-banner">{error}</div>}
@@ -112,7 +139,10 @@ function UserCreateView({ apiClient }: Props) {
             <label>Email<input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required /></label>
             <label>Nazwa wyświetlana<input value={displayName} onChange={(e) => setDisplayName(e.target.value)} required /></label>
             <div style={{ display: "flex", gap: 8 }}>
-              <button type="submit" disabled={saving || !email.trim() || !displayName.trim()}>{saving ? "Tworzenie..." : "Utwórz użytkownika"}</button>
+              <button type="submit" disabled={saving || !email.trim() || !displayName.trim()}>
+                <Plus size={14} />
+                {saving ? "Tworzenie..." : "Utwórz użytkownika"}
+              </button>
               <Link className="admin-btn-small" to="/admin/users">Powrót do listy</Link>
             </div>
           </form>
@@ -154,6 +184,13 @@ function UserDetailsView({ apiClient }: Props) {
     <div className="admin-panel">
       <AdminHeader />
       <div className="admin-content">
+        <Breadcrumbs
+          items={[
+            { label: pl.breadcrumbs.admin, to: "/admin/workspaces", icon: Home },
+            { label: pl.breadcrumbs.users, to: "/admin/users", icon: Users },
+            { label: pl.adminCrud.userDetails, icon: Eye },
+          ]}
+        />
         <div className="admin-list-block">
           <h3>Podgląd użytkownika</h3>
           {error && <div className="error-banner">{error}</div>}
@@ -165,6 +202,7 @@ function UserDetailsView({ apiClient }: Props) {
               <p><strong>Status:</strong> {user.status}</p>
               <div style={{ display: "flex", gap: 8 }}>
                 <button className="admin-btn-small" type="button" onClick={() => void handleDelete()} disabled={deleting}>
+                  <Trash2 size={14} />
                   {deleting ? "Usuwanie..." : "Usuń użytkownika"}
                 </button>
                 <Link className="admin-btn-small" to="/admin/users">Powrót do listy</Link>
@@ -189,10 +227,15 @@ function WorkspaceListView({ apiClient }: Props) {
     <div className="admin-panel">
       <AdminHeader />
       <div className="admin-content">
+        <Breadcrumbs
+          items={[
+            { label: pl.breadcrumbs.admin, to: "/admin/workspaces", icon: Home },
+          ]}
+        />
         <div className="admin-list-block">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h3>Przestrzenie robocze ({workspaces.length})</h3>
-            <Link className="admin-btn-small" to="/admin/workspaces/new">Utwórz nową przestrzeń roboczą</Link>
+            <Link className="admin-btn-small" to="/admin/workspaces/new"><Plus size={14} /> Utwórz nową przestrzeń roboczą</Link>
           </div>
           {error && <div className="error-banner">{error}</div>}
           {workspaces.length === 0 ? (
@@ -208,7 +251,7 @@ function WorkspaceListView({ apiClient }: Props) {
                     <td><code>{w.slug}</code></td>
                     <td>{w.name}</td>
                     <td>{w.status}</td>
-                    <td><Link className="admin-btn-small" to={`/admin/workspaces/${w.id}`}>Podgląd</Link></td>
+                    <td><Link className="admin-btn-small" to={`/admin/workspaces/${w.id}`}><Eye size={14} /> Podgląd</Link></td>
                   </tr>
                 ))}
               </tbody>
@@ -254,6 +297,12 @@ function WorkspaceCreateView({ apiClient }: Props) {
     <div className="admin-panel">
       <AdminHeader />
       <div className="admin-content">
+        <Breadcrumbs
+          items={[
+            { label: pl.breadcrumbs.admin, to: "/admin/workspaces", icon: Home },
+            { label: pl.breadcrumbs.new, icon: Plus },
+          ]}
+        />
         <div className="admin-form-block">
           <h3>Nowa przestrzeń robocza</h3>
           {error && <div className="error-banner">{error}</div>}
@@ -262,7 +311,10 @@ function WorkspaceCreateView({ apiClient }: Props) {
             <label>Slug<input value={slug} onChange={(e) => setSlug(e.target.value)} required /></label>
             <label>Folder danych<input value={dataFolder} onChange={(e) => setDataFolder(e.target.value)} placeholder="np. firma_ABC" /></label>
             <div style={{ display: "flex", gap: 8 }}>
-              <button type="submit" disabled={saving || !name.trim() || !slug.trim()}>{saving ? "Tworzenie..." : "Utwórz przestrzeń roboczą"}</button>
+              <button type="submit" disabled={saving || !name.trim() || !slug.trim()}>
+                <Plus size={14} />
+                {saving ? "Tworzenie..." : "Utwórz przestrzeń roboczą"}
+              </button>
               <Link className="admin-btn-small" to="/admin/workspaces">Powrót do listy</Link>
             </div>
           </form>
@@ -317,6 +369,13 @@ function WorkspaceEditView({ apiClient }: Props) {
     <div className="admin-panel">
       <AdminHeader />
       <div className="admin-content">
+        <Breadcrumbs
+          items={[
+            { label: pl.breadcrumbs.admin, to: "/admin/workspaces", icon: Home },
+            { label: name || pl.chat.workspaceNotSelected, to: workspaceId ? `/admin/workspaces/${workspaceId}` : undefined, icon: Eye },
+            { label: pl.breadcrumbs.edit, icon: Pencil },
+          ]}
+        />
         <div className="admin-form-block">
           <h3>Edycja workspace</h3>
           {error && <div className="error-banner">{error}</div>}
@@ -326,7 +385,10 @@ function WorkspaceEditView({ apiClient }: Props) {
               <label>Slug<input value={slug} onChange={(e) => setSlug(e.target.value)} required /></label>
               <label>Folder danych<input value={dataFolder} onChange={(e) => setDataFolder(e.target.value)} placeholder="np. firma_ABC" /></label>
               <div style={{ display: "flex", gap: 8 }}>
-                <button type="submit" disabled={saving || !name.trim() || !slug.trim()}>{saving ? "Zapisywanie..." : "Zapisz zmiany"}</button>
+                <button type="submit" disabled={saving || !name.trim() || !slug.trim()}>
+                  <Pencil size={14} />
+                  {saving ? "Zapisywanie..." : "Zapisz zmiany"}
+                </button>
                 {workspaceId && <Link className="admin-btn-small" to={`/admin/workspaces/${workspaceId}`}>Powrót do podglądu</Link>}
               </div>
             </form>
@@ -347,6 +409,7 @@ function WorkspaceDetailsView({ apiClient }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [warnings, setWarnings] = useState<{ file_name: string; error: string }[]>([]);
+  const [tab, setTab] = useState<"documents" | "users">("documents");
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -398,6 +461,12 @@ function WorkspaceDetailsView({ apiClient }: Props) {
     <div className="admin-panel">
       <AdminHeader />
       <div className="admin-content">
+        <Breadcrumbs
+          items={[
+            { label: pl.breadcrumbs.admin, to: "/admin/workspaces", icon: Home },
+            { label: workspace?.name ?? pl.adminCrud.workspaceDetails, icon: Eye },
+          ]}
+        />
         <div className="admin-list-block">
           <h3>Podgląd przestrzeni roboczej</h3>
           {error && <div className="error-banner">{error}</div>}
@@ -414,28 +483,43 @@ function WorkspaceDetailsView({ apiClient }: Props) {
                   onClick={() => void handleIndexFolder()}
                   disabled={indexing || !workspace.data_folder}
                 >
+                  <FolderSearch size={14} />
                   {indexing ? "Indeksowanie..." : "Indeksuj folder"}
                 </button>
-                <Link className="admin-btn-small" to={`/admin/workspaces/${workspace.id}/edit`}>Edytuj przestrzeń roboczą</Link>
+                <Link className="admin-btn-small" to={`/admin/workspaces/${workspace.id}/edit`}><Pencil size={14} /> Edytuj przestrzeń roboczą</Link>
                 <button className="admin-btn-small" type="button" onClick={() => void handleDeleteWorkspace()} disabled={deleting}>
+                  <Trash2 size={14} />
                   {deleting ? "Usuwanie..." : "Usuń przestrzeń roboczą"}
                 </button>
                 <Link className="admin-btn-small" to="/admin/workspaces">Powrót do listy</Link>
               </div>
               {warnings.length > 0 && <div className="error-banner">{warnings.map((w) => <div key={w.file_name}>{w.file_name}: {w.error}</div>)}</div>}
-              <MembersBlock
-                workspace={workspace}
-                members={members}
-                users={users}
-                onMemberAdded={(member) => setMembers((prev) => [...prev, member])}
-                apiClient={apiClient}
-                onError={setError}
-              />
-              <DocumentsBlock
-                workspace={workspace}
-                apiClient={apiClient}
-                onError={setError}
-              />
+              <div className="admin-tabs workspace-details-tabs">
+                <button className={`admin-tab${tab === "documents" ? " active" : ""}`} onClick={() => setTab("documents")}>
+                  <FileText size={14} />
+                  {pl.workspaceDetails.tabs.documents}
+                </button>
+                <button className={`admin-tab${tab === "users" ? " active" : ""}`} onClick={() => setTab("users")}>
+                  <Users size={14} />
+                  {pl.workspaceDetails.tabs.users}
+                </button>
+              </div>
+              {tab === "users" ? (
+                <MembersBlock
+                  workspace={workspace}
+                  members={members}
+                  users={users}
+                  onMemberAdded={(member) => setMembers((prev) => [...prev, member])}
+                  apiClient={apiClient}
+                  onError={setError}
+                />
+              ) : (
+                <DocumentsBlock
+                  workspace={workspace}
+                  apiClient={apiClient}
+                  onError={setError}
+                />
+              )}
             </>
           )}
         </div>
@@ -486,27 +570,35 @@ function MembersBlock({ workspace, members, users, onMemberAdded, apiClient, onE
           </tbody>
         </table>
       )}
-      {availableUsers.length > 0 && (
-        <form className="admin-form admin-form-inline" onSubmit={(e) => void handleAdd(e)}>
-          <label>
-            Użytkownik
-            <select value={userId} onChange={(e) => setUserId(e.target.value)} required>
-              <option value="">Wybierz…</option>
-              {availableUsers.map((u) => <option key={u.id} value={u.id}>{u.email} - {u.display_name}</option>)}
-            </select>
-          </label>
-          <label>
-            Rola
-            <select value={role} onChange={(e) => setRole(e.target.value)}>
-              <option value="owner">owner</option>
-              <option value="admin">admin</option>
-              <option value="member">member</option>
-              <option value="viewer">viewer</option>
-            </select>
-          </label>
-          <button type="submit" disabled={saving || !userId}>{saving ? "Dodawanie..." : "Dodaj członka"}</button>
-        </form>
-      )}
+      <form className="admin-form admin-form-inline" onSubmit={(e) => void handleAdd(e)}>
+        <label>
+          Użytkownik
+          <select value={userId} onChange={(e) => setUserId(e.target.value)} required>
+            <option value="">Wybierz…</option>
+            {availableUsers.map((u) => <option key={u.id} value={u.id}>{u.email} - {u.display_name}</option>)}
+          </select>
+        </label>
+        <label>
+          Rola
+          <select value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="owner">owner</option>
+            <option value="admin">admin</option>
+            <option value="member">member</option>
+            <option value="viewer">viewer</option>
+          </select>
+        </label>
+        <button type="submit" disabled={saving || !userId || availableUsers.length === 0}>
+          <UserPlus size={14} />
+          {saving ? "Dodawanie..." : "Przypisz użytkownika"}
+        </button>
+      </form>
+      {availableUsers.length === 0 ? (
+        <p className="muted">Brak dostępnych użytkowników do przypisania. Utwórz nowego użytkownika w osobnym widoku.</p>
+      ) : null}
+      <Link className="admin-btn-small" to="/admin/users/new">
+        <Plus size={14} />
+        Utwórz użytkownika
+      </Link>
     </div>
   );
 }
@@ -522,6 +614,7 @@ function DocumentsBlock({ workspace, apiClient, onError }: {
   const [warnings, setWarnings] = useState<{ file_name: string; error: string }[]>([]);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+  const [reindexingDocumentId, setReindexingDocumentId] = useState<string | null>(null);
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkReindexing, setBulkReindexing] = useState(false);
@@ -565,6 +658,21 @@ function DocumentsBlock({ workspace, apiClient, onError }: {
       onError(String(e));
     } finally {
       setDeletingDocumentId(null);
+    }
+  }
+
+  async function handleReindexDocument(document: AdminDocumentListItem) {
+    if (!document.latest_version_id || document.is_active === false) {
+      return;
+    }
+    setReindexingDocumentId(document.id);
+    try {
+      await apiClient.reindexDocumentVersion(document.id, document.latest_version_id);
+      await loadDocuments();
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setReindexingDocumentId(null);
     }
   }
 
@@ -652,6 +760,7 @@ function DocumentsBlock({ workspace, apiClient, onError }: {
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
         <input ref={uploadInputRef} type="file" accept=".md" multiple onChange={(e) => setFiles(e.target.files)} />
         <button className="admin-btn-small" type="button" onClick={() => void handleUpload()} disabled={uploading || !files?.length}>
+          <Upload size={14} />
           {uploading ? "Przesyłanie..." : "Dodaj plik"}
         </button>
       </div>
@@ -671,6 +780,7 @@ function DocumentsBlock({ workspace, apiClient, onError }: {
             onClick={() => void handleDeleteSelected()}
             disabled={selectedDocumentIds.size === 0 || bulkDeleting || bulkReindexing}
           >
+            <Trash2 size={14} />
             {bulkDeleting ? "Usuwanie zaznaczonych..." : "Usuń zaznaczone"}
           </button>
           <button
@@ -679,6 +789,7 @@ function DocumentsBlock({ workspace, apiClient, onError }: {
             onClick={() => void handleReindexSelected()}
             disabled={selectedDocumentIds.size === 0 || bulkReindexing || bulkDeleting}
           >
+            <FolderSearch size={14} />
             {bulkReindexing ? "Kolejkowanie..." : "Prześlij zaznaczone do przetwarzania"}
           </button>
         </div>
@@ -701,7 +812,17 @@ function DocumentsBlock({ workspace, apiClient, onError }: {
                   <td>{d.latest_processing_status ?? "-"}</td>
                   <td>{d.version_count}</td>
                   <td>
+                    <button
+                      className="admin-btn-small"
+                      type="button"
+                      onClick={() => void handleReindexDocument(d)}
+                      disabled={reindexingDocumentId === d.id || !d.latest_version_id || d.is_active === false}
+                    >
+                      <FolderSearch size={14} />
+                      {reindexingDocumentId === d.id ? "Reindeksowanie..." : "Re-indexuj"}
+                    </button>
                     <button className="admin-btn-small" type="button" onClick={() => void handleDeleteDocument(d.id)} disabled={deletingDocumentId === d.id}>
+                      <Trash2 size={14} />
                       {deletingDocumentId === d.id ? "Usuwanie..." : "Usuń"}
                     </button>
                   </td>

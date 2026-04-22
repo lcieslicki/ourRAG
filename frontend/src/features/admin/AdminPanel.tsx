@@ -1,4 +1,5 @@
 import { useEffect, useReducer, useRef, useState } from "react";
+import { Eye, FileText, FolderSearch, Plus, RotateCcw, Trash2, Upload, UserPlus, Users } from "lucide-react";
 import type {
   AdminDocumentListItem,
   AdminProcessingJob,
@@ -119,9 +120,11 @@ export function AdminPanel({ apiClient }: Props) {
 
       <div className="admin-tabs">
         <button className={`admin-tab${state.tab === "users" ? " active" : ""}`} onClick={() => dispatch({ type: "SET_TAB", tab: "users" })}>
+          <Users size={14} />
           Użytkownicy ({state.users.length})
         </button>
         <button className={`admin-tab${state.tab === "workspaces" ? " active" : ""}`} onClick={() => dispatch({ type: "SET_TAB", tab: "workspaces" })}>
+          <FileText size={14} />
           Przestrzenie robocze ({state.workspaces.length})
         </button>
       </div>
@@ -191,6 +194,7 @@ function UsersTab({ users, onCreated, apiClient, onError }: {
             <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Jan Kowalski" required />
           </label>
           <button type="submit" disabled={saving || !email.trim() || !displayName.trim()}>
+            <Plus size={14} />
             {saving ? "Tworzenie…" : "Utwórz użytkownika"}
           </button>
         </form>
@@ -272,6 +276,7 @@ function WorkspacesTab({ workspaces, users, selectedWorkspaceId, members, onCrea
             <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="firma_abc" required />
           </label>
           <button type="submit" disabled={saving || !name.trim() || !slug.trim()}>
+            <Plus size={14} />
             {saving ? "Tworzenie…" : "Utwórz przestrzeń roboczą"}
           </button>
         </form>
@@ -295,6 +300,7 @@ function WorkspacesTab({ workspaces, users, selectedWorkspaceId, members, onCrea
                   <td>{w.status}</td>
                   <td>
                     <button className="admin-btn-small" onClick={() => onSelect(w.id)}>
+                      <Eye size={14} />
                       Zarządzaj
                     </button>
                   </td>
@@ -404,6 +410,7 @@ function MembersBlock({ workspace, members, users, onMemberAdded, apiClient, onE
             </select>
           </label>
           <button type="submit" disabled={saving || !userId}>
+            <UserPlus size={14} />
             {saving ? "Dodawanie…" : "Dodaj członka"}
           </button>
         </form>
@@ -678,6 +685,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
             disabled={indexing || !userId || !workspace.data_folder}
             title={!workspace.data_folder ? "Najpierw skonfiguruj folder danych" : undefined}
           >
+            <FolderSearch size={14} />
             {indexing ? "Indeksowanie…" : `Indeksuj folder${workspace.data_folder ? ` (${workspace.data_folder})` : ""}`}
           </button>
 
@@ -697,6 +705,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
             onClick={() => void handleUpload()}
             disabled={uploading || !userId || !files?.length}
           >
+            <Upload size={14} />
             {uploading ? "Przesyłanie…" : "Prześlij pliki .md"}
           </button>
         </div>
@@ -720,6 +729,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
             onClick={() => void handleReindexAllDocuments()}
             disabled={bulkReindexing || documents.length === 0}
           >
+            <RotateCcw size={14} />
             {bulkReindexing ? "Zlecanie…" : "Zleć indeksację wszystkich"}
           </button>
           <button
@@ -727,6 +737,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
             onClick={() => void handleDeleteAllDocuments()}
             disabled={bulkDeleting || documents.length === 0}
           >
+            <Trash2 size={14} />
             {bulkDeleting ? "Usuwanie…" : "Usuń wszystkie"}
           </button>
         </div>
@@ -795,6 +806,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
                       onClick={() => void handleRetryForDocument(d)}
                       disabled={retryingJobId === d.id || retryingJobId === latestFailedJobForDocument(d.id)?.id}
                     >
+                      <RotateCcw size={14} />
                       {latestFailedJobForDocument(d.id) ? "Ponów failed job" : "Ponów indeksację"}
                     </button>
                     <button
@@ -802,6 +814,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
                       onClick={() => void handleDeleteDocument(d.id)}
                       disabled={deletingDocumentId === d.id}
                     >
+                      <Trash2 size={14} />
                       {deletingDocumentId === d.id ? "Usuwanie…" : "Usuń"}
                     </button>
                   </td>
@@ -842,6 +855,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
                         onClick={() => void handleRetryJob(job)}
                         disabled={retryingJobId === job.id}
                       >
+                        <RotateCcw size={14} />
                         {retryingJobId === job.id ? "Ponawianie…" : "Ponów"}
                       </button>
                     </td>

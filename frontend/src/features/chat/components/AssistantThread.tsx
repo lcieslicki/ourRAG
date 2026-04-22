@@ -1,4 +1,5 @@
 import { ComposerPrimitive, MessagePrimitive, ThreadPrimitive, useMessage } from "@assistant-ui/react";
+import { ArrowDown, SendHorizontal, Sparkles } from "lucide-react";
 
 import type { ChatProcessingLogEvent } from "../../../lib/api/types";
 import { pl } from "../../../i18n/pl";
@@ -14,6 +15,7 @@ export function AssistantThread({ chatLogsByMessage }: AssistantThreadProps) {
       <ThreadPrimitive.Viewport className="assistant-thread-viewport">
         <ThreadPrimitive.Empty>
           <div className="assistant-empty">
+            <Sparkles size={18} />
             <h3>{pl.assistantThread.emptyTitle}</h3>
             <p>{pl.assistantThread.emptyHint}</p>
           </div>
@@ -24,7 +26,10 @@ export function AssistantThread({ chatLogsByMessage }: AssistantThreadProps) {
             AssistantMessage,
           }}
         />
-        <ThreadPrimitive.ScrollToBottom className="scroll-button">{pl.assistantThread.scrollToBottom}</ThreadPrimitive.ScrollToBottom>
+        <ThreadPrimitive.ScrollToBottom className="scroll-button">
+          <ArrowDown size={16} />
+          {pl.assistantThread.scrollToBottom}
+        </ThreadPrimitive.ScrollToBottom>
       </ThreadPrimitive.Viewport>
       <ComposerPrimitive.Root className="assistant-composer">
         <ComposerPrimitive.Input
@@ -32,7 +37,10 @@ export function AssistantThread({ chatLogsByMessage }: AssistantThreadProps) {
           placeholder={pl.assistantThread.inputPlaceholder}
           rows={2}
         />
-        <ComposerPrimitive.Send className="assistant-send">{pl.assistantThread.send}</ComposerPrimitive.Send>
+        <ComposerPrimitive.Send className="assistant-send">
+          <SendHorizontal size={16} />
+          {pl.assistantThread.send}
+        </ComposerPrimitive.Send>
       </ComposerPrimitive.Root>
     </ThreadPrimitive.Root>
   );

@@ -1,4 +1,5 @@
 import type { Session } from "../features/auth/LoginScreen";
+import { LogOut } from "lucide-react";
 import { pl } from "../i18n/pl";
 
 type Props = {
@@ -18,6 +19,7 @@ export function WorkspaceSwitcher({ session, onLogout }: Props) {
         <span className="session-value">{session.workspaceName}</span>
       </div>
       <button type="button" className="session-change-btn" onClick={onLogout}>
+        <LogOut size={16} />
         Zmień sesję
       </button>
     </section>

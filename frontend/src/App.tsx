@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
-import { Link, Navigate, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { MessageSquare, Shield } from "lucide-react";
 
 import { AppLayout } from "./app/AppLayout";
 import { ConversationList } from "./components/ConversationList";
@@ -68,9 +69,15 @@ export function App() {
         <AppLayout
           sidebar={(
             <>
-              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                <Link className="admin-toggle" to="/chat">{pl.app.chatTab}</Link>
-                <Link className="admin-toggle" to="/admin/workspaces">{pl.app.adminTab}</Link>
+              <div className="sidebar-nav">
+                <NavLink className={({ isActive }) => `admin-toggle${isActive ? " active" : ""}`} to="/chat">
+                  <MessageSquare size={16} />
+                  {pl.app.chatTab}
+                </NavLink>
+                <NavLink className={({ isActive }) => `admin-toggle${isActive ? " active" : ""}`} to="/admin/workspaces">
+                  <Shield size={16} />
+                  {pl.app.adminTab}
+                </NavLink>
               </div>
               <WorkspaceSwitcher session={session} onLogout={handleLogout} />
               <ConversationList

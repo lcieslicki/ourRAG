@@ -1,4 +1,5 @@
 import type { ConversationSummary } from "../lib/api/types";
+import { Inbox, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { pl } from "../i18n/pl";
 
 type ConversationListProps = {
@@ -25,17 +26,25 @@ export function ConversationList({
       <div className="sidebar-section-header">
         <h2>{pl.conversations.title}</h2>
         <button type="button" onClick={onRefresh} disabled={isLoading}>
+          <RefreshCw size={16} />
           {pl.conversations.refresh}
         </button>
       </div>
       <button type="button" className="new-conversation-button" onClick={onStartNewConversation}>
+        <Plus size={16} />
         {pl.conversations.newConversation}
       </button>
       <button type="button" className="new-conversation-button" onClick={onDeleteAll} disabled={isLoading}>
+        <Trash2 size={16} />
         Usuń rozmowy
       </button>
       {isLoading ? <p className="muted">{pl.conversations.loading}</p> : null}
-      {!isLoading && conversations.length === 0 ? <p className="muted">{pl.conversations.empty}</p> : null}
+      {!isLoading && conversations.length === 0 ? (
+        <p className="muted empty-state">
+          <Inbox size={16} />
+          {pl.conversations.empty}
+        </p>
+      ) : null}
       <div className="conversation-items">
         {conversations.map((conversation) => (
           <button

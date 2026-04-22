@@ -119,4 +119,17 @@ export const pl = {
     submitSelectedForProcessing: "Prześlij zaznaczone do przetwarzania",
     addFile: "Dodaj plik",
   },
+  workspaceDetails: {
+    tabs: {
+      documents: "Dokumenty",
+      users: "Użytkownicy",
+    },
+  },
+  breadcrumbs: {
+    admin: "Panel admina",
+    workspaces: "Przestrzenie robocze",
+    users: "Użytkownicy",
+    new: "Nowy",
+    edit: "Edycja",
+  },
 };

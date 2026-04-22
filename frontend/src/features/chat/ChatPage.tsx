@@ -3,6 +3,8 @@ import { SourcesPanel } from "./components/SourcesPanel";
 import type { ChatProcessingLogEvent, ChatSource } from "../../lib/api/types";
 import type { ChatReadiness } from "./useWorkspaceChat";
 import type { ReactNode } from "react";
+import { AlertCircle, CheckCircle2, Loader2, MessageSquare, Workflow } from "lucide-react";
+import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { pl } from "../../i18n/pl";
 
 type ChatPageProps = {
@@ -28,6 +30,16 @@ export function ChatPage({
   chatLogsByMessage,
   chatReadiness,
 }: ChatPageProps) {
+  function statusIcon(status: "ok" | "error" | "loading", className?: string) {
+    if (status === "ok") {
+      return <CheckCircle2 size={18} className={className} />;
+    }
+    if (status === "error") {
+      return <AlertCircle size={18} className={className} />;
+    }
+    return <Loader2 size={18} className={`${className ?? ""} icon-spin`.trim()} />;
+  }
+
   const orderedChecks = [...chatReadiness.checks].sort((left, right) => {
     const priority: Record<string, number> = { loading: 0, error: 1, ok: 2 };
     return (priority[left.status] ?? 99) - (priority[right.status] ?? 99);
@@ -37,6 +49,12 @@ export function ChatPage({
     <section className="chat-page" aria-label={pl.chat.ariaLabel}>
       <header className="chat-header">
         <div>
+          <Breadcrumbs
+            items={[
+              { label: pl.app.chatTab, to: "/chat", icon: MessageSquare },
+              { label: pl.chat.workspaceLabel, icon: Workflow },
+            ]}
+          />
           <p className="eyebrow">{pl.app.chatTab}</p>
           <h2>{pl.chat.heading}</h2>
         </div>
@@ -53,7 +71,10 @@ export function ChatPage({
       </header>
       <section className={`chat-readiness chat-readiness-${chatReadiness.status}`} aria-label={pl.chat.readinessAria}>
         <div className="chat-readiness-header">
-          <strong>{chatReadiness.title}</strong>
+          <strong>
+            {statusIcon(chatReadiness.status, `readiness-icon readiness-icon-${chatReadiness.status}`)}
+            {chatReadiness.title}
+          </strong>
           <span>{chatReadiness.hint}</span>
         </div>
         <details className="chat-readiness-details">
@@ -61,8 +82,11 @@ export function ChatPage({
           <ul className="chat-readiness-list">
             {orderedChecks.map((check) => (
               <li key={check.id} className={`chat-readiness-item chat-readiness-item-${check.status}`}>
-                <span className="chat-readiness-item-label">{check.label}</span>
-                <span className="chat-readiness-item-hint">{check.hint}</span>
+                {statusIcon(check.status, `readiness-icon readiness-icon-${check.status}`)}
+                <span>
+                  <span className="chat-readiness-item-label">{check.label}</span>
+                  <span className="chat-readiness-item-hint">{check.hint}</span>
+                </span>
               </li>
             ))}
           </ul>
