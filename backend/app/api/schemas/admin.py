@@ -57,6 +57,12 @@ class WorkspaceCreateRequest(BaseModel):
     slug: str = Field(max_length=120)
 
 
+class WorkspaceUpdateRequest(BaseModel):
+    name: str = Field(max_length=255)
+    slug: str = Field(max_length=120)
+    data_folder: str | None = Field(default=None, max_length=255)
+
+
 class WorkspaceResponse(BaseModel):
     id: str
     name: str
@@ -96,7 +102,6 @@ class AdminDocumentUploadResponse(BaseModel):
 
 
 class AdminFolderIndexRequest(BaseModel):
-    user_id: str
     folder: str | None = Field(default=None, max_length=255)
 
 

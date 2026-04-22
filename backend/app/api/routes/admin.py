@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from starlette.datastructures import Headers
@@ -25,6 +25,7 @@ from app.api.schemas.admin import (
     UserCreateRequest,
     UserResponse,
     WorkspaceCreateRequest,
+    WorkspaceUpdateRequest,
     WorkspaceMemberAddRequest,
     WorkspaceMemberResponse,
     WorkspaceResponse,
@@ -443,9 +444,9 @@ def delete_all_workspace_documents(
 def admin_upload_documents(
     workspace_id: str,
     background_tasks: BackgroundTasks,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
     storage: Annotated[LocalFileStorage, Depends(get_local_file_storage)],
-    user_id: Annotated[str, Form()],
     files: Annotated[list[UploadFile], File()] = (),
 ) -> AdminDocumentUploadResponse:
     service = DocumentService(db, storage)
@@ -453,7 +454,13 @@ def admin_upload_documents(
     failed: list[AdminIndexFailure] = []
 
     for file in files:
-        outcome = _index_one(service=service, workspace_id=workspace_id, user_id=user_id, file=file, db=db)
+        outcome = _index_one(
+            service=service,
+            workspace_id=workspace_id,
+            user_id=current_user.id,
+            file=file,
+            db=db,
+        )
         if isinstance(outcome, AdminDocumentIndexResult):
             indexed.append(outcome)
         else:
@@ -471,6 +478,7 @@ def admin_index_folder(
     workspace_id: str,
     payload: AdminFolderIndexRequest,
     background_tasks: BackgroundTasks,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
     storage: Annotated[LocalFileStorage, Depends(get_local_file_storage)],
 ) -> AdminFolderIndexResponse:
@@ -496,7 +504,7 @@ def admin_index_folder(
         outcome = _index_one(
             service=service,
             workspace_id=workspace_id,
-            user_id=payload.user_id,
+            user_id=current_user.id,
             file=_FilePathUpload(path),
             db=db,
         )
@@ -709,6 +717,35 @@ def get_workspace(workspace_id: str, db: Annotated[Session, Depends(get_db)]) ->
     return _workspace_response(workspace)
 
 
+@router.put("/workspaces/{workspace_id}", response_model=WorkspaceResponse)
+def update_workspace(
+    workspace_id: str,
+    payload: WorkspaceUpdateRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> WorkspaceResponse:
+    workspace = db.get(Workspace, workspace_id)
+    if workspace is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "workspace_not_found", "message": "Workspace not found"})
+
+    try:
+        ensure_admin(db, user_id=current_user.id, workspace_id=workspace_id)
+    except (WorkspaceAccessDenied, WorkspaceRoleDenied) as exc:
+        raise workspace_denied(exc)
+
+    normalized_slug = payload.slug.strip()
+    existing = db.execute(select(Workspace).where(Workspace.slug == normalized_slug, Workspace.id != workspace_id)).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": "slug_taken", "message": "Workspace slug already in use"})
+
+    workspace.name = payload.name.strip()
+    workspace.slug = normalized_slug
+    _set_workspace_data_folder(workspace, payload.data_folder)
+    db.commit()
+    db.refresh(workspace)
+    return _workspace_response(workspace)
+
+
 @router.delete("/workspaces/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_workspace(workspace_id: str, db: Annotated[Session, Depends(get_db)]) -> None:
     workspace = db.get(Workspace, workspace_id)
@@ -734,9 +771,7 @@ def set_data_folder(workspace_id: str, payload: AdminSetDataFolderRequest, db: A
     workspace = db.get(Workspace, workspace_id)
     if not workspace:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "workspace_not_found", "message": "Workspace not found"})
-    settings = dict(workspace.settings_json or {})
-    settings["data_folder"] = payload.folder.strip()
-    workspace.settings_json = settings
+    _set_workspace_data_folder(workspace, payload.folder)
     db.commit()
     return _workspace_response(workspace)
 
@@ -782,6 +817,16 @@ def _workspace_response(workspace: Workspace) -> WorkspaceResponse:
         data_folder=(workspace.settings_json or {}).get("data_folder"),
         created_at=workspace.created_at,
     )
+
+
+def _set_workspace_data_folder(workspace: Workspace, folder: str | None) -> None:
+    settings = dict(workspace.settings_json or {})
+    normalized_folder = folder.strip() if isinstance(folder, str) else ""
+    if normalized_folder:
+        settings["data_folder"] = normalized_folder
+    else:
+        settings.pop("data_folder", None)
+    workspace.settings_json = settings
 
 
 def workspace_settings_response(workspace: Workspace) -> WorkspaceSettingsResponse:

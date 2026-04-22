@@ -896,9 +896,9 @@ At the end:
 
 ---
 
-# Phase 12 — End-to-end coverage and hardening
+# Phase 12 — End-to-end coverage and hardening ✅
 
-## Prompt 12.1 — Add E2E tests for the happy path
+## Prompt 12.1 — Add E2E tests for the happy path ✅
 
 ```text
 Add end-to-end tests for the MVP happy path.
@@ -917,7 +917,7 @@ At the end:
 - list any manual prerequisites
 ```
 
-## Prompt 12.2 — Add E2E tests for tenant isolation and versioning
+## Prompt 12.2 — Add E2E tests for tenant isolation and versioning ✅
 
 ```text
 Add end-to-end tests for:
@@ -937,7 +937,7 @@ At the end:
 - identify any still better suited to integration tests instead of E2E
 ```
 
-## Prompt 12.3 — Hardening pass
+## Prompt 12.3 — Hardening pass ✅
 
 ```text
 Perform a hardening pass on the existing implementation.
@@ -964,7 +964,7 @@ At the end:
 
 # Final consolidation prompts
 
-## Prompt F.1 — Documentation sync check
+## Prompt F.1 — Documentation sync check ✅
 
 ```text
 Review the implementation against:
@@ -979,135 +979,3 @@ Tasks:
 
 Return the result as a concise gap analysis.
 ```
-
-## Prompt F.2 — Final MVP readiness report
-
-```text
-Review the repository and produce an MVP readiness report.
-
-Requirements:
-- Evaluate backend completeness
-- evaluate frontend completeness
-- evaluate ingestion pipeline completeness
-- evaluate retrieval and memory completeness
-- evaluate security-critical areas
-- evaluate testing coverage
-- evaluate local developer experience
-- list blockers vs non-blockers
-
-Return:
-- completed
-- partial
-- missing
-for each major subsystem, with brief justification.
-```
-
----
-
-# Optional prompts
-
-## Optional prompt — Backend-first vertical slice
-
-```text
-Implement only the smallest backend-first vertical slice that can demonstrate the core product value locally.
-
-Target slice:
-- workspace membership
-- markdown upload
-- chunking
-- indexing
-- one chat endpoint
-- retrieval scoped to workspace
-- answer generation with Bielik
-- source attribution
-- minimal tests
-
-Do not implement the full frontend yet.
-Do not implement future features.
-Keep the slice runnable in Docker locally.
-```
-
-## Optional prompt — Repo refactor control
-
-```text
-Before changing anything, inspect the current repository and identify if the requested work can be completed without major refactoring.
-
-If major refactoring is needed:
-- explain why
-- propose the smallest safe refactor plan
-- do not execute it yet
-```
-
-## Optional prompt — Subagent exploration only
-
-```text
-Use subagents only for analysis, not for coding.
-
-Create:
-- one subagent to inspect backend needs
-- one subagent to inspect frontend needs
-- one subagent to inspect testing needs
-
-Then consolidate the results into one implementation proposal aligned with the docs.
-
-Do not write code in this step.
-```
-
----
-
-# Recommended execution order
-
-1. Prompt 0.1
-2. Prompt 0.2
-3. Prompt 1.1
-4. Prompt 1.2
-5. Prompt 1.3
-6. Prompt 2.1
-7. Prompt 2.2
-8. Prompt 3.1
-9. Prompt 3.2
-10. Prompt 3.3
-11. Prompt 4.1
-12. Prompt 4.2
-13. Prompt 4.3
-14. Prompt 5.1
-15. Prompt 5.2
-16. Prompt 5.3
-17. Prompt 6.1
-18. Prompt 6.2
-19. Prompt 6.3
-20. Prompt 6.4
-21. Prompt 7.1
-22. Prompt 7.2
-23. Prompt 8.1
-24. Prompt 8.2
-25. Prompt 8.3
-26. Prompt 9.1
-27. Prompt 9.2
-28. Prompt 9.3
-29. Prompt 9.4
-30. Prompt 10.1
-31. Prompt 10.2
-32. Prompt 11.1
-33. Prompt 11.2
-34. Prompt 11.3
-35. Prompt 11.4
-36. Prompt 12.1
-37. Prompt 12.2
-38. Prompt 12.3
-39. Prompt F.1
-40. Prompt F.2
-
----
-
-# Final recommendation
-
-For best results, use Codex in this pattern for each phase:
-
-1. ask for the phase plan,
-2. let it implement one phase only,
-3. review the diff,
-4. run tests,
-5. only then move to the next prompt.
-
-This is more reliable than asking Codex to build the whole system in one pass.

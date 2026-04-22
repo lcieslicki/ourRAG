@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ApiClient } from "../../lib/api/client";
 import type { AdminUserResponse, WorkspaceSummary } from "../../lib/api/types";
 import { config } from "../../config";
+import { pl } from "../../i18n/pl";
 
 export type Session = {
   userId: string;
@@ -92,7 +93,7 @@ export function LoginScreen({ onLogin }: Props) {
           </label>
 
           <label>
-            Workspace
+            {pl.login.workspaceLabel}
             <select
               value={selectedWorkspaceId}
               onChange={(e) => setSelectedWorkspaceId(e.target.value)}
@@ -103,10 +104,10 @@ export function LoginScreen({ onLogin }: Props) {
                 {!selectedUserId
                   ? "Najpierw wybierz użytkownika"
                   : loadingWorkspaces
-                    ? "Ładowanie workspace'ów…"
+                    ? pl.login.loadingWorkspaces
                     : workspaces.length === 0
-                      ? "Brak przypisanych workspace'ów"
-                      : "Wybierz workspace…"}
+                      ? pl.login.noAssignedWorkspaces
+                      : pl.login.selectWorkspace}
               </option>
               {workspaces.map((w) => (
                 <option key={w.id} value={w.id}>
@@ -120,7 +121,7 @@ export function LoginScreen({ onLogin }: Props) {
             type="submit"
             disabled={!selectedUserId || !selectedWorkspaceId}
           >
-            Otwórz workspace
+            {pl.login.openWorkspace}
           </button>
         </form>
       </div>

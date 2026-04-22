@@ -18,6 +18,8 @@ make infra-logs
 make infra-down
 ```
 
+ss
+
 After stack startup, pull the generation model configured in `OLLAMA_MODEL` (default: `SpeakLeash/bielik-11b-v2.3-instruct:Q8_0`):
 
 ```sh
@@ -26,7 +28,7 @@ docker compose --env-file .env.example --env-file .env.docker.example --env-file
 
 All backend and frontend project commands should run inside containers. This keeps dependency versions, service hostnames, and environment loading aligned with the Docker stack.
 
-Backend examples:
+Backend examples::
 
 ```sh
 make backend-shell

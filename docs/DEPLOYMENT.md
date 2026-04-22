@@ -8,12 +8,17 @@ The project is currently intended for local use only. Production deployment, pub
 
 ## Core services
 
+Always started:
+
 - frontend
 - backend API
 - PostgreSQL
 - Qdrant
 - Redis
-- Ollama
+
+Optional (profile-based):
+
+- Ollama (see below)
 
 The documented ingestion worker exists as backend code, but the current Compose stack does not run a separate `worker` service.
 
@@ -36,15 +41,51 @@ Expected differences would include:
 - resource limits,
 - optional reverse proxy.
 
-## Ollama recommendation
+## Ollama deployment modes
 
-Run Ollama in Docker for MVP.
-This fits the overall container-managed system and avoids snowflake host setup.
+Ollama can run in two modes. Choose based on available hardware.
 
-## Resource notes
+### Native (recommended for development on Apple Silicon)
 
-Bielik model selection must fit VPS CPU/RAM budget.
-Start with the lighter viable Bielik setup before considering heavier variants.
+Ollama installed directly on the host machine uses the Metal GPU, which is significantly faster than CPU-only Docker.
+The Ollama container is excluded from Compose by default.
+
+```bash
+# Start infrastructure only (Ollama not included)
+docker compose up
+
+# OLLAMA_HOST must point to the host from inside Docker
+OLLAMA_HOST=host.docker.internal   # backend in Docker
+OLLAMA_HOST=localhost               # backend running directly
+```
+
+### Dockerized
+
+Use when GPU access is not a concern (CI, CPU-only machines, or NVIDIA GPU with Docker GPU passthrough).
+
+```bash
+# Start infrastructure including Ollama container
+docker compose --profile ollama up
+
+OLLAMA_HOST=ollama
+```
+
+## Model recommendation
+
+Use `SpeakLeash/bielik-11b-v2.3-instruct:Q4_K_M` for development.
+
+| Quantization | RAM  | Quality | Speed on Apple Silicon |
+|---|---|---|---|
+| Q8_0         | ~12GB | best    | slow on CPU            |
+| Q4_K_M       | ~6GB  | good    | fast with Metal GPU    |
+
+Pull the model before first use:
+
+```bash
+ollama pull SpeakLeash/bielik-11b-v2.3-instruct:Q4_K_M
+```
+
+Set `OLLAMA_TIMEOUT_SECONDS=180` to accommodate model load time on first request.
 
 ## Persistent volumes
 
@@ -70,7 +111,7 @@ backend
 postgres
 qdrant
 redis
-ollama
+ollama   ← only with --profile ollama
 ```
 
 Potential future shape:

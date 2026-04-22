@@ -7,7 +7,7 @@ from app.api.dependencies.llm import get_generation_gateway
 from app.api.dependencies.retrieval import get_query_embedding_service, get_retrieval_vector_index
 from app.domain.embeddings import EmbeddingMetadata, EmbeddingResult
 from app.domain.llm import GenerationResponse
-from app.domain.models import Message
+from app.domain.models import Conversation, Message
 from app.infrastructure.vector_index import VectorIndexResult
 from app.main import app
 from tests.factories import (
@@ -281,6 +281,39 @@ def test_multi_workspace_user_lists_and_reads_only_requested_workspace_conversat
     assert [conversation["id"] for conversation in response_a.json()] == [conversation_a.id]
     assert response_b.status_code == 200
     assert [conversation["id"] for conversation in response_b.json()] == [conversation_b.id]
+
+
+def test_delete_workspace_conversations_removes_only_user_scope(db_session) -> None:
+    user = create_user(db_session, email_prefix="owner")
+    other_user = create_user(db_session, email_prefix="other")
+    workspace = create_workspace(db_session)
+    other_workspace = create_workspace(db_session, slug_prefix="other-workspace")
+    create_membership(db_session, user=user, workspace=workspace, role="member")
+    create_membership(db_session, user=other_user, workspace=workspace, role="member")
+    create_membership(db_session, user=user, workspace=other_workspace, role="member")
+
+    create_conversation(db_session, workspace=workspace, user=user)
+    create_conversation(db_session, workspace=workspace, user=other_user)
+    create_conversation(db_session, workspace=other_workspace, user=user)
+    client = client_with_dependencies(db_session)
+
+    try:
+        response = client.delete(
+            "/api/conversations",
+            headers={"X-User-Id": user.id},
+            params={"workspace_id": workspace.id},
+        )
+    finally:
+        clear_overrides()
+
+    remaining_in_workspace_for_user = db_session.query(Conversation).filter(
+        Conversation.workspace_id == workspace.id,
+        Conversation.user_id == user.id,
+    ).count()
+
+    assert response.status_code == 200
+    assert response.json()["deleted_conversations"] == 1
+    assert remaining_in_workspace_for_user == 0
 
 
 def test_chat_appends_user_and_assistant_messages(db_session) -> None:

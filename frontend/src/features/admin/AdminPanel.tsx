@@ -107,7 +107,7 @@ export function AdminPanel({ apiClient }: Props) {
     <div className="admin-panel">
       <div className="admin-header">
         <h2>Panel Admina</h2>
-        <p className="muted">Zarządzaj użytkownikami i workspace&apos;ami do testowania aplikacji.</p>
+        <p className="muted">Zarządzaj użytkownikami i przestrzeniami roboczymi do testowania aplikacji.</p>
       </div>
 
       {state.error && (
@@ -122,7 +122,7 @@ export function AdminPanel({ apiClient }: Props) {
           Użytkownicy ({state.users.length})
         </button>
         <button className={`admin-tab${state.tab === "workspaces" ? " active" : ""}`} onClick={() => dispatch({ type: "SET_TAB", tab: "workspaces" })}>
-          Workspace&apos;y ({state.workspaces.length})
+          Przestrzenie robocze ({state.workspaces.length})
         </button>
       </div>
 
@@ -261,7 +261,7 @@ function WorkspacesTab({ workspaces, users, selectedWorkspaceId, members, onCrea
   return (
     <div className="admin-section">
       <div className="admin-form-block">
-        <h3>Nowy workspace</h3>
+        <h3>Nowa przestrzeń robocza</h3>
         <form className="admin-form" onSubmit={(e) => void handleCreate(e)}>
           <label>
             Nazwa
@@ -272,15 +272,15 @@ function WorkspacesTab({ workspaces, users, selectedWorkspaceId, members, onCrea
             <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="firma_abc" required />
           </label>
           <button type="submit" disabled={saving || !name.trim() || !slug.trim()}>
-            {saving ? "Tworzenie…" : "Utwórz workspace"}
+            {saving ? "Tworzenie…" : "Utwórz przestrzeń roboczą"}
           </button>
         </form>
       </div>
 
       <div className="admin-list-block">
-        <h3>Workspace&apos;y ({workspaces.length})</h3>
+        <h3>Przestrzenie robocze ({workspaces.length})</h3>
         {workspaces.length === 0 ? (
-          <p className="muted">Brak workspace&apos;ów.</p>
+          <p className="muted">Brak przestrzeni roboczych.</p>
         ) : (
           <table className="admin-table">
             <thead>
@@ -484,7 +484,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
     setUploading(true);
     setWarnings([]);
     try {
-      const res = await apiClient.adminUploadDocuments(workspace.id, { userId, category, files });
+      const res = await apiClient.adminUploadDocuments(workspace.id, { files });
       setWarnings(res.failed);
       setFiles(null);
       if (uploadInputRef.current) {
@@ -504,7 +504,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
     setIndexing(true);
     setWarnings([]);
     try {
-      const res = await apiClient.adminIndexFolder(workspace.id, { user_id: userId, folder: null as unknown as string, category });
+      const res = await apiClient.adminIndexFolder(workspace.id);
       setWarnings(res.failed);
       await loadDocuments();
       await loadProcessingJobs();
@@ -534,7 +534,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
   }
 
   async function handleDeleteAllDocuments() {
-    const confirmed = window.confirm("Na pewno usunąć wszystkie dokumenty z tego workspace? Operacja jest nieodwracalna.");
+    const confirmed = window.confirm("Na pewno usunąć wszystkie dokumenty z tej przestrzeni roboczej? Operacja jest nieodwracalna.");
     if (!confirmed) {
       return;
     }
@@ -668,7 +668,7 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
             <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="admin" />
           </label>
         </div>
-        <p className="muted" style={{ fontSize: "0.82em", margin: "4px 0 8px" }}>Użytkownik musi być właścicielem lub adminem workspace&apos;u.</p>
+        <p className="muted" style={{ fontSize: "0.82em", margin: "4px 0 8px" }}>Użytkownik musi być właścicielem lub administratorem przestrzeni roboczej.</p>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8 }}>
           <button

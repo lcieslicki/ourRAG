@@ -13,6 +13,33 @@ afterEach(() => {
 });
 
 describe("MVP chat UI", () => {
+  it("deletes all workspace conversations from the sidebar action", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchMock = mockApi({
+      conversations: [conversation({ id: "conv-1", workspace_id: "workspace-1", title: "Cleanup me" })],
+      documents: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+    await chooseWorkspace("user-1", "workspace-1");
+
+    expect(await screen.findByRole("button", { name: /Cleanup me active/i })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Usuń rozmowy" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/conversations?workspace_id=workspace-1"),
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Brak wczytanych rozmów.")).toBeInTheDocument();
+  });
+
   it("keeps the active workspace explicit and loads workspace conversations", async () => {
     const fetchMock = mockApi({
       conversations: [
@@ -33,7 +60,7 @@ describe("MVP chat UI", () => {
     await chooseWorkspace("user-1", "workspace-1");
 
     expect(await screen.findByRole("button", { name: /Vacation policy active/i })).toBeInTheDocument();
-    const chatSection = screen.getByRole("region", { name: "Chat" });
+    const chatSection = screen.getByRole("region", { name: "Czat" });
     expect(within(chatSection).getByText("workspace-1")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/api/conversations?workspace_id=workspace-1"),
@@ -116,7 +143,7 @@ describe("MVP chat UI", () => {
     await chooseWorkspace("user-1", "workspace-1");
     await userEvent.click(await screen.findByRole("button", { name: /HR active/i }));
 
-    const sources = screen.getByLabelText("Latest answer sources");
+    const sources = screen.getByLabelText("Źródła ostatniej odpowiedzi");
     expect(await within(sources).findByText("Employee Handbook")).toBeInTheDocument();
     expect(within(sources).getByText("HR > Vacation")).toBeInTheDocument();
     expect(within(sources).getByText("Vacation requests must be submitted in the HR system.")).toBeInTheDocument();
@@ -140,8 +167,9 @@ describe("MVP chat UI", () => {
       </MemoryRouter>,
     );
     await chooseWorkspace("user-1", "workspace-1");
-    await userEvent.click(await screen.findByLabelText("Category"));
-    await userEvent.selectOptions(screen.getByLabelText("Category", { selector: "select" }), "HR");
+    await userEvent.click(await screen.findByLabelText("Kategoria"));
+    await userEvent.selectOptions(screen.getByLabelText("Kategoria", { selector: "select" }), "HR");
+    await userEvent.click(screen.getByRole("button", { name: "Zastosuj" }));
     await sendChatMessage("How do vacations work?");
 
     await waitFor(() => {
@@ -153,8 +181,9 @@ describe("MVP chat UI", () => {
       );
     });
 
-    await userEvent.click(screen.getByLabelText("Selected documents"));
+    await userEvent.click(screen.getByLabelText("Wybrane dokumenty"));
     await userEvent.click(screen.getByLabelText(/Employee Handbook/i));
+    await userEvent.click(screen.getByRole("button", { name: "Zastosuj" }));
     await sendChatMessage("Use only the handbook.");
 
     await waitFor(() => {
@@ -181,8 +210,7 @@ describe("MVP chat UI", () => {
     );
     await chooseWorkspace("user-1", "workspace-1");
 
-    expect(await screen.findByText(/API request failed: 403/i)).toBeInTheDocument();
-    expect(screen.getByText(/workspace_access_denied/i)).toBeInTheDocument();
+    expect(await screen.findByText("Brak dostępu do wybranej przestrzeni roboczej.")).toBeInTheDocument();
   });
 
   it("renders collapsible processing logs under user question", async () => {
@@ -228,8 +256,8 @@ describe("MVP chat UI", () => {
     await chooseWorkspace("user-1", "workspace-1");
     await userEvent.click(await screen.findByRole("button", { name: /Debug run active/i }));
 
-    expect(await screen.findByText("Question")).toBeInTheDocument();
-    expect(screen.getByText(/Processing logs \(1\)/)).toBeInTheDocument();
+    expect(await screen.findByText("Pytanie")).toBeInTheDocument();
+    expect(screen.getByText(/Logi przetwarzania \(1\)/)).toBeInTheDocument();
     expect(screen.getByText("completed")).toBeInTheDocument();
     expect(screen.getByText(/result_count/i)).toBeInTheDocument();
   });
@@ -239,13 +267,13 @@ async function chooseWorkspace(userId: string, workspaceId: string) {
   await screen.findByRole("option", { name: /user-1@example\.test/i });
   await userEvent.selectOptions(screen.getByLabelText("Użytkownik"), userId);
   await screen.findByRole("option", { name: /Workspace One/i });
-  await userEvent.selectOptions(screen.getByLabelText("Workspace"), workspaceId);
-  await userEvent.click(screen.getByRole("button", { name: "Otwórz workspace" }));
+  await userEvent.selectOptions(screen.getByLabelText("Przestrzeń robocza"), workspaceId);
+  await userEvent.click(screen.getByRole("button", { name: "Otwórz przestrzeń roboczą" }));
 }
 
 async function sendChatMessage(text: string) {
-  await userEvent.type(screen.getByPlaceholderText("Ask a question..."), text);
-  await userEvent.click(screen.getByRole("button", { name: "Send" }));
+  await userEvent.type(screen.getByPlaceholderText("Zadaj pytanie..."), text);
+  await userEvent.click(screen.getByRole("button", { name: "Wyślij" }));
 }
 
 function mockApi(options: {
@@ -281,6 +309,9 @@ function mockApi(options: {
     }
 
     if (url.includes("/api/conversations?")) {
+      if (init?.method === "DELETE") {
+        return jsonResponse({ deleted_conversations: 1 });
+      }
       return jsonResponse(options.conversations, options.conversationsStatus ?? 200);
     }
 

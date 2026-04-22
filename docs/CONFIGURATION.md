@@ -52,14 +52,29 @@ QDRANT_TIMEOUT=10
 ```
 
 ### Ollama
+
+`OLLAMA_HOST` depends on the chosen deployment mode:
+
 ```env
+# Native Ollama, backend running directly on host
+OLLAMA_HOST=localhost
+
+# Native Ollama, backend running in Docker
+OLLAMA_HOST=host.docker.internal
+
+# Ollama in Docker (docker compose --profile ollama up)
 OLLAMA_HOST=ollama
+```
+
+```env
 OLLAMA_PORT=11434
-OLLAMA_MODEL=bielik
-OLLAMA_TIMEOUT_SECONDS=60
+OLLAMA_MODEL=SpeakLeash/bielik-11b-v2.3-instruct:Q4_K_M
+OLLAMA_TIMEOUT_SECONDS=180
 OLLAMA_KEEP_ALIVE=5m
 OLLAMA_MAX_CONCURRENCY=2
 ```
+
+`OLLAMA_TIMEOUT_SECONDS` must be high enough to cover model load time on first request (typically 30–90 s on Apple Silicon).
 
 ### Embeddings
 ```env

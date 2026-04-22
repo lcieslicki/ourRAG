@@ -81,6 +81,29 @@ def get_conversation(
     return conversation_detail_response(conversation)
 
 
+@router.delete("", status_code=status.HTTP_200_OK)
+def delete_conversations(
+    workspace_id: Annotated[str, Query()],
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, int]:
+    service = ConversationService(db)
+    try:
+        deleted_count = service.delete_workspace_conversations(
+            user_id=current_user.id,
+            workspace_id=workspace_id,
+        )
+        db.commit()
+    except WorkspaceAccessDenied as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "workspace_access_denied", "message": str(exc)},
+        ) from exc
+
+    return {"deleted_conversations": deleted_count}
+
+
 def conversation_summary_response(conversation: Conversation) -> ConversationSummaryResponse:
     return ConversationSummaryResponse(
         id=conversation.id,

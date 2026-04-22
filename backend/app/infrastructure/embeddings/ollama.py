@@ -68,6 +68,7 @@ class OllamaEmbeddingService:
                         "workspace_id": chunk.workspace_id,
                         "language": chunk.language,
                         "chunking_strategy_version": chunk.chunking_strategy_version,
+                        **chunk.metadata,
                     },
                 )
                 for chunk in chunks

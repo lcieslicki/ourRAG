@@ -39,6 +39,7 @@ async def send_chat_message(
     settings = get_settings()
     active_user_message_id: str | None = None
     active_workspace_id = payload.workspace_id
+    _loop = asyncio.get_event_loop()
 
     async def emit(category: str, stage: str, status: str, event_payload: dict[str, Any]) -> None:
         await chat_log_manager.publish(
@@ -72,9 +73,7 @@ async def send_chat_message(
             payload=safe_event_payload(event_payload),
             timestamp=datetime.now(UTC).isoformat(),
         )
-        import asyncio
-
-        asyncio.create_task(chat_log_manager.publish(event))
+        _loop.call_soon_threadsafe(_loop.create_task, chat_log_manager.publish(event))
 
     try:
         await emit(

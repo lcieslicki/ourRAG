@@ -28,13 +28,14 @@ class VectorPoint:
     is_active: bool
     embedding: EmbeddingMetadata
     tags: list[str] | None = None
+    chunk_metadata: dict | None = None
 
     @property
     def point_id(self) -> str:
         return str(uuid5(NAMESPACE_URL, f"ourrag:{self.document_version_id}:{self.chunk_id}"))
 
     def payload(self) -> dict:
-        return {
+        payload = {
             "workspace_id": self.workspace_id,
             "document_id": self.document_id,
             "document_version_id": self.document_version_id,
@@ -51,7 +52,15 @@ class VectorPoint:
             "embedding_model_name": self.embedding.model_name,
             "embedding_model_version": self.embedding.model_version,
             "embedding_dimensions": self.embedding.dimensions,
+            "chunk_metadata": self.chunk_metadata or {},
+            "chunk_type": (self.chunk_metadata or {}).get("chunk_type", "prose"),
+            "source_format": (self.chunk_metadata or {}).get("source_format", "markdown"),
         }
+        if self.chunk_metadata:
+            for key in ("table_name", "row_key", "document_name", "section"):
+                if key in self.chunk_metadata:
+                    payload[key] = self.chunk_metadata[key]
+        return payload
 
 
 @dataclass(frozen=True)

@@ -3,6 +3,7 @@ import { SourcesPanel } from "./components/SourcesPanel";
 import type { ChatProcessingLogEvent, ChatSource } from "../../lib/api/types";
 import type { ChatReadiness } from "./useWorkspaceChat";
 import type { ReactNode } from "react";
+import { pl } from "../../i18n/pl";
 
 type ChatPageProps = {
   workspaceId: string;
@@ -33,30 +34,30 @@ export function ChatPage({
   });
 
   return (
-    <section className="chat-page" aria-label="Chat">
+    <section className="chat-page" aria-label={pl.chat.ariaLabel}>
       <header className="chat-header">
         <div>
-          <p className="eyebrow">Chat</p>
-          <h2>Ask from workspace knowledge</h2>
+          <p className="eyebrow">{pl.app.chatTab}</p>
+          <h2>{pl.chat.heading}</h2>
         </div>
         <dl>
           <div>
-            <dt>Workspace</dt>
-            <dd>{workspaceId || "not selected"}</dd>
+            <dt>{pl.chat.workspaceLabel}</dt>
+            <dd>{workspaceId || pl.chat.workspaceNotSelected}</dd>
           </div>
           <div>
-            <dt>Conversation</dt>
-            <dd>{conversationId || "new or backend-selected"}</dd>
+            <dt>{pl.chat.conversationLabel}</dt>
+            <dd>{conversationId || pl.chat.conversationAuto}</dd>
           </div>
         </dl>
       </header>
-      <section className={`chat-readiness chat-readiness-${chatReadiness.status}`} aria-label="Chat readiness">
+      <section className={`chat-readiness chat-readiness-${chatReadiness.status}`} aria-label={pl.chat.readinessAria}>
         <div className="chat-readiness-header">
           <strong>{chatReadiness.title}</strong>
           <span>{chatReadiness.hint}</span>
         </div>
         <details className="chat-readiness-details">
-          <summary>Show detailed checks</summary>
+          <summary>{pl.chat.detailsSummary}</summary>
           <ul className="chat-readiness-list">
             {orderedChecks.map((check) => (
               <li key={check.id} className={`chat-readiness-item chat-readiness-item-${check.status}`}>
@@ -68,8 +69,8 @@ export function ChatPage({
         </details>
       </section>
       {error ? <div className="error-banner">{error}</div> : null}
-      {isLoadingConversation ? <div className="status-banner">Loading conversation...</div> : null}
-      {isSending ? <div className="status-banner">Waiting for backend response...</div> : null}
+      {isLoadingConversation ? <div className="status-banner">{pl.chat.loadingConversation}</div> : null}
+      {isSending ? <div className="status-banner">{pl.chat.waitingResponse}</div> : null}
       <div className="chat-content">
         <AssistantThread chatLogsByMessage={chatLogsByMessage} />
         <aside className="chat-aside">

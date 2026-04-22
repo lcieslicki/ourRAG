@@ -11,6 +11,7 @@ import type {
 } from "../../lib/api/types";
 import { subscribeChatLogs } from "../../lib/api/ws";
 import { config } from "../../config";
+import { pl } from "../../i18n/pl";
 
 type UseWorkspaceChatOptions = {
   apiClient: ApiClient;
@@ -41,7 +42,8 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
   const [activeConversationId, setActiveConversationId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [documents, setDocuments] = useState<DocumentListItem[]>([]);
-  const [scope, setScope] = useState<RetrievalScope>({ mode: "all" });
+  const [scopeDraft, setScopeDraft] = useState<RetrievalScope>({ mode: "all" });
+  const [appliedScope, setAppliedScope] = useState<RetrievalScope>({ mode: "all" });
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
@@ -197,7 +199,7 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
       try {
         const detail = await apiClient.getConversation(conversationId);
         if (detail.workspace_id !== workspaceId) {
-          throw new Error("Conversation does not belong to the active workspace.");
+          throw new Error("Rozmowa nie należy do aktywnej przestrzeni roboczej.");
         }
         setMessages(detail.messages.map(withExtractedSources));
         setChatLogsByMessage(extractLogsFromMessages(detail.messages));
@@ -219,6 +221,28 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
     setChatLogsByMessage({});
     pendingMessageIdRef.current = null;
   }, []);
+
+  const clearConversations = useCallback(async () => {
+    if (!canUseApi) {
+      return;
+    }
+    const shouldDelete = window.confirm("Czy na pewno chcesz usunąć wszystkie rozmowy w tym workspace?");
+    if (!shouldDelete) {
+      return;
+    }
+
+    setError(null);
+    try {
+      await apiClient.deleteAllConversations(workspaceId);
+      setConversations([]);
+      setActiveConversationId("");
+      setMessages([]);
+      setChatLogsByMessage({});
+      pendingMessageIdRef.current = null;
+    } catch (error) {
+      setError(errorMessage(error));
+    }
+  }, [apiClient, canUseApi, workspaceId]);
 
   useEffect(() => {
     if (!activeConversationId || !canUseApi) {
@@ -249,7 +273,7 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
         }
       },
       onError: () => {
-        setError((current) => current ?? "Chat log stream disconnected.");
+        setError((current) => current ?? pl.errors.streamDisconnected);
       },
     });
   }, [activeConversationId, canUseApi, userId]);
@@ -257,7 +281,7 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
   const sendMessage = useCallback(
     async (content: string) => {
       if (!canUseApi) {
-        setError("Set both User ID and Workspace ID before sending a message.");
+        setError(pl.errors.missingIdsBeforeSend);
         return;
       }
 
@@ -289,7 +313,7 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
           workspace_id: workspaceId,
           conversation_id: conversationId,
           message: trimmed,
-          scope: scopeForRequest(scope),
+          scope: scopeForRequest(appliedScope),
         });
 
         setActiveConversationId(response.conversation_id);
@@ -314,8 +338,14 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
         setIsSending(false);
       }
     },
-    [activeConversationId, apiClient, canUseApi, loadConversations, scope, workspaceId],
+    [activeConversationId, apiClient, appliedScope, canUseApi, loadConversations, workspaceId],
   );
+
+  const applyScope = useCallback(() => {
+    setAppliedScope(normalizeScopeSelection(scopeDraft));
+  }, [scopeDraft]);
+
+  const hasPendingScopeChanges = useMemo(() => !areScopesEqual(scopeDraft, appliedScope), [appliedScope, scopeDraft]);
 
   const latestSources = useMemo(() => {
     const latestAssistantMessage = [...messages]
@@ -337,19 +367,19 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
     return [
       {
         id: "user",
-        label: "User session",
+        label: pl.chat.checks.userSession,
         status: hasUser ? "ok" : "error",
-        hint: hasUser ? "Authenticated user is available." : "Login is required to start chat.",
+        hint: hasUser ? pl.chat.checks.userSessionOk : pl.chat.checks.userSessionMissing,
       },
       {
         id: "workspace",
-        label: "Workspace selected",
+        label: pl.chat.checks.workspaceSelected,
         status: hasWorkspace ? "ok" : "error",
-        hint: hasWorkspace ? "Workspace context is active." : "Select a workspace before chatting.",
+        hint: hasWorkspace ? pl.chat.checks.workspaceSelectedOk : pl.chat.checks.workspaceSelectedMissing,
       },
       {
         id: "backend",
-        label: "Backend API",
+        label: pl.chat.checks.backendApi,
         status: !canCheckBackend
           ? "loading"
           : backendLoading
@@ -358,16 +388,16 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
               ? "ok"
               : "error",
         hint: !canCheckBackend
-          ? "Waiting for session and workspace."
+          ? pl.chat.checks.waitingSession
           : backendLoading
-              ? "Checking backend availability..."
+              ? pl.chat.checks.checkingBackend
               : isBackendReachable
-                ? "Backend ping check passed."
-                : "Backend is unreachable. Check API health.",
+                ? pl.chat.checks.backendOk
+                : pl.chat.checks.backendFail,
       },
       {
         id: "documents",
-        label: "Documents scope",
+        label: pl.chat.checks.documentsScope,
         status: !canCheckBackend
           ? "loading"
           : backendError || !isBackendReachable
@@ -376,16 +406,16 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
               ? "loading"
               : "ok",
         hint: !canCheckBackend
-          ? "Waiting for workspace context."
+          ? pl.chat.checks.waitingWorkspace
           : backendError || !isBackendReachable
-            ? "Could not load workspace documents."
+            ? pl.chat.checks.documentsFail
             : documentsLoading
-              ? "Loading available documents..."
-              : "Document scope is ready.",
+              ? pl.chat.checks.loadingDocuments
+              : pl.chat.checks.documentsOk,
       },
       {
         id: "llm",
-        label: "Ollama / Chat model",
+        label: pl.chat.checks.llmModel,
         status: !canCheckBackend
           ? "loading"
           : !isBackendReachable
@@ -396,18 +426,18 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
                 ? "ok"
                 : "error",
         hint: !canCheckBackend
-          ? "Waiting for session and workspace."
+          ? pl.chat.checks.waitingSession
           : !isBackendReachable
-            ? "Cannot verify LLM while backend is unreachable."
+            ? pl.chat.checks.llmCannotVerify
             : llmLoading
-              ? "Checking Ollama model readiness..."
+              ? pl.chat.checks.checkingLlm
               : isLlmReady
-                ? "Ollama model is ready."
-                : "Ollama is reachable but model is not ready.",
+                ? pl.chat.checks.llmOk
+                : pl.chat.checks.llmFail,
       },
       {
         id: "conversation",
-        label: "Conversation state",
+        label: pl.chat.checks.conversationState,
         status: !canCheckBackend
           ? "loading"
           : backendError || !isBackendReachable || !isLlmReady
@@ -416,12 +446,12 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
               ? "loading"
               : "ok",
         hint: !canCheckBackend
-          ? "Waiting for workspace context."
+          ? pl.chat.checks.waitingWorkspace
           : backendError || !isBackendReachable || !isLlmReady
-            ? "Conversation cannot be loaded because of an error."
+            ? pl.chat.checks.conversationFail
             : conversationLoading
-              ? "Loading active conversation..."
-              : "Conversation is ready for input.",
+              ? pl.chat.checks.conversationLoading
+              : pl.chat.checks.conversationOk,
       },
     ];
   }, [
@@ -446,8 +476,8 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
     if (hasError) {
       return {
         status: "error",
-        title: "Chat requires attention",
-        hint: "Fix failing checks to start using chat safely.",
+        title: pl.chat.requiresAttention,
+        hint: pl.chat.requiresAttentionHint,
         checks: readinessChecks,
       };
     }
@@ -455,16 +485,16 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
     if (hasLoading) {
       return {
         status: "loading",
-        title: "Preparing chat",
-        hint: "A few startup checks are still running.",
+        title: pl.chat.preparing,
+        hint: pl.chat.preparingHint,
         checks: readinessChecks,
       };
     }
 
     return {
       status: "ready",
-      title: "Chat is ready",
-      hint: "All checks passed. You can ask your question now.",
+      title: pl.chat.ready,
+      hint: pl.chat.readyHint,
       checks: readinessChecks,
     };
   }, [readinessChecks]);
@@ -485,11 +515,14 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
     messages,
     chatLogsByMessage,
     chatReadiness,
-    scope,
+    scope: scopeDraft,
+    hasPendingScopeChanges,
     selectConversation,
     sendMessage,
-    setScope,
+    setScope: setScopeDraft,
+    applyScope,
     startNewConversation,
+    clearConversations,
   };
 }
 
@@ -547,6 +580,46 @@ function scopeForRequest(scope: RetrievalScope): RetrievalScope | undefined {
   }
 
   return { mode: "all" };
+}
+
+function normalizeScopeSelection(scope: RetrievalScope): RetrievalScope {
+  if (scope.mode === "all") {
+    return { mode: "all" };
+  }
+
+  if (scope.mode === "category") {
+    const category = scope.category?.trim() ?? "";
+    return category ? { mode: "category", category } : { mode: "all" };
+  }
+
+  const documentIds = Array.isArray(scope.document_ids) ? scope.document_ids : [];
+  return documentIds.length > 0 ? { mode: "documents", document_ids: documentIds } : { mode: "all" };
+}
+
+function areScopesEqual(left: RetrievalScope, right: RetrievalScope): boolean {
+  const normalizedLeft = normalizeScopeSelection(left);
+  const normalizedRight = normalizeScopeSelection(right);
+
+  if (normalizedLeft.mode !== normalizedRight.mode) {
+    return false;
+  }
+
+  if (normalizedLeft.mode === "all") {
+    return true;
+  }
+
+  if (normalizedLeft.mode === "category" && normalizedRight.mode === "category") {
+    return normalizedLeft.category === normalizedRight.category;
+  }
+
+  if (normalizedLeft.mode === "documents" && normalizedRight.mode === "documents") {
+    if (normalizedLeft.document_ids.length !== normalizedRight.document_ids.length) {
+      return false;
+    }
+    return normalizedLeft.document_ids.every((id, index) => id === normalizedRight.document_ids[index]);
+  }
+
+  return false;
 }
 
 function assistantMessageFromResponse(
@@ -608,5 +681,5 @@ function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
-  return "Unexpected frontend error.";
+  return pl.errors.frontendUnexpected;
 }

@@ -1,6 +1,15 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from app.domain.parsers.base import ParsedBlock, ParsedDocument
+from app.domain.chunking.tables import (
+    MarkdownTableMatch,
+    build_chunk_metadata,
+    detect_markdown_tables,
+    generate_table_overview_chunk,
+    generate_table_row_chunks,
+    parse_markdown_table,
+    split_text_around_tables,
+)
+from app.domain.parsers.base import ParsedDocument
 
 DEFAULT_CHUNKING_STRATEGY = "markdown_semantic_v1"
 
@@ -32,6 +41,7 @@ class DocumentChunk:
     workspace_id: str
     language: str
     chunking_strategy_version: str
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -39,6 +49,9 @@ class ChunkCandidate:
     text: str
     heading: str | None
     section_path: tuple[str, ...]
+    chunk_type: str = "prose"
+    metadata: dict = field(default_factory=dict)
+    apply_overlap: bool = True
 
 
 class MarkdownChunkingService:
@@ -52,12 +65,23 @@ class MarkdownChunkingService:
         workspace_id: str,
         document_version_id: str,
         language: str,
+        document_id: str | None = None,
+        document_name: str | None = None,
     ) -> tuple[DocumentChunk, ...]:
         chunks: list[DocumentChunk] = []
+        previous_overlap_text: str | None = None
 
-        for candidate in self._build_candidates(parsed_document):
+        for candidate in self._build_candidates(
+            parsed_document,
+            document_id=document_id,
+            document_name=document_name,
+        ):
             for piece in self._split_candidate(candidate):
-                text = self._with_overlap(chunks[-1].text if chunks else None, piece.text)
+                text = (
+                    self._with_overlap(previous_overlap_text, piece.text)
+                    if piece.apply_overlap
+                    else piece.text
+                )
                 chunks.append(
                     DocumentChunk(
                         chunk_index=len(chunks),
@@ -68,12 +92,31 @@ class MarkdownChunkingService:
                         workspace_id=workspace_id,
                         language=language,
                         chunking_strategy_version=self.config.strategy_version,
+                        metadata={
+                            **build_chunk_metadata(
+                                chunk_type=piece.chunk_type,
+                                table=None,
+                                row=None,
+                                document_id=document_id,
+                                document_name=document_name,
+                                section=piece.heading,
+                                section_path=piece.section_path,
+                            ),
+                            **piece.metadata,
+                        },
                     )
                 )
+                previous_overlap_text = text if piece.apply_overlap else None
 
         return tuple(chunks)
 
-    def _build_candidates(self, parsed_document: ParsedDocument) -> list[ChunkCandidate]:
+    def _build_candidates(
+        self,
+        parsed_document: ParsedDocument,
+        *,
+        document_id: str | None,
+        document_name: str | None,
+    ) -> list[ChunkCandidate]:
         candidates: list[ChunkCandidate] = []
         current_lines: list[str] = []
         current_section_path: tuple[str, ...] = ()
@@ -81,11 +124,13 @@ class MarkdownChunkingService:
 
         def flush() -> None:
             if current_lines:
-                candidates.append(
-                    ChunkCandidate(
-                        text="\n\n".join(current_lines).strip(),
+                candidates.extend(
+                    self._candidates_from_text(
+                        "\n\n".join(current_lines).strip(),
                         heading=current_heading,
                         section_path=current_section_path,
+                        document_id=document_id,
+                        document_name=document_name,
                     )
                 )
                 current_lines.clear()
@@ -108,7 +153,114 @@ class MarkdownChunkingService:
         flush()
         return candidates
 
+    def _candidates_from_text(
+        self,
+        text: str,
+        *,
+        heading: str | None,
+        section_path: tuple[str, ...],
+        document_id: str | None,
+        document_name: str | None,
+    ) -> list[ChunkCandidate]:
+        table_matches = detect_markdown_tables(text)
+        if not table_matches:
+            return [
+                ChunkCandidate(
+                    text=text,
+                    heading=heading,
+                    section_path=section_path,
+                    metadata=build_chunk_metadata(
+                        chunk_type="prose",
+                        table=None,
+                        row=None,
+                        document_id=document_id,
+                        document_name=document_name,
+                        section=heading,
+                        section_path=section_path,
+                    ),
+                )
+            ]
+
+        candidates: list[ChunkCandidate] = []
+        for part_type, value in split_text_around_tables(text, table_matches):
+            if part_type == "prose":
+                prose_text = str(value).strip()
+                if self._is_heading_only(prose_text, heading=heading):
+                    continue
+                if prose_text:
+                    candidates.append(
+                        ChunkCandidate(
+                            text=prose_text,
+                            heading=heading,
+                            section_path=section_path,
+                            metadata=build_chunk_metadata(
+                                chunk_type="prose",
+                                table=None,
+                                row=None,
+                                document_id=document_id,
+                                document_name=document_name,
+                                section=heading,
+                                section_path=section_path,
+                            ),
+                        )
+                    )
+                continue
+
+            if not isinstance(value, MarkdownTableMatch):
+                continue
+
+            table = parse_markdown_table(value.lines)
+            if table is None:
+                continue
+
+            overview = generate_table_overview_chunk(
+                table,
+                document_id=document_id,
+                document_name=document_name,
+                section=heading,
+                section_path=section_path,
+            )
+            candidates.append(
+                ChunkCandidate(
+                    text=overview.text,
+                    heading=heading,
+                    section_path=section_path,
+                    chunk_type="table_overview",
+                    metadata=overview.metadata,
+                    apply_overlap=False,
+                )
+            )
+            for row_chunk in generate_table_row_chunks(
+                table,
+                document_id=document_id,
+                document_name=document_name,
+                section=heading,
+                section_path=section_path,
+            ):
+                candidates.append(
+                    ChunkCandidate(
+                        text=row_chunk.text,
+                        heading=heading,
+                        section_path=section_path,
+                        chunk_type="table_row",
+                        metadata=row_chunk.metadata,
+                        apply_overlap=False,
+                    )
+                )
+
+        return candidates
+
+    @staticmethod
+    def _is_heading_only(text: str, *, heading: str | None) -> bool:
+        if not heading:
+            return False
+        heading_lines = {heading, *(f"{'#' * level} {heading}" for level in range(1, 7))}
+        return text.strip() in heading_lines
+
     def _split_candidate(self, candidate: ChunkCandidate) -> list[ChunkCandidate]:
+        if candidate.chunk_type != "prose":
+            return [candidate]
+
         if len(candidate.text) <= self.config.chunk_size:
             return [candidate]
 
@@ -151,6 +303,9 @@ class MarkdownChunkingService:
                     text=text.strip(),
                     heading=candidate.heading,
                     section_path=candidate.section_path,
+                    chunk_type=candidate.chunk_type,
+                    metadata=candidate.metadata,
+                    apply_overlap=candidate.apply_overlap,
                 )
             ]
 
@@ -164,6 +319,9 @@ class MarkdownChunkingService:
                     text=text[start:end].strip(),
                     heading=candidate.heading,
                     section_path=candidate.section_path,
+                    chunk_type=candidate.chunk_type,
+                    metadata=candidate.metadata,
+                    apply_overlap=candidate.apply_overlap,
                 )
             )
             start = end

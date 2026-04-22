@@ -12,6 +12,7 @@ import { AdminCrudRoutes } from "./features/admin/AdminCrudRoutes";
 import { LoginScreen, type Session } from "./features/auth/LoginScreen";
 import { ApiClient } from "./lib/api/client";
 import { config } from "./config";
+import { pl } from "./i18n/pl";
 
 const SESSION_KEY = "ourrag_session";
 
@@ -68,8 +69,8 @@ export function App() {
           sidebar={(
             <>
               <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                <Link className="admin-toggle" to="/chat">Chat</Link>
-                <Link className="admin-toggle" to="/admin/workspaces">Panel Admina</Link>
+                <Link className="admin-toggle" to="/chat">{pl.app.chatTab}</Link>
+                <Link className="admin-toggle" to="/admin/workspaces">{pl.app.adminTab}</Link>
               </div>
               <WorkspaceSwitcher session={session} onLogout={handleLogout} />
               <ConversationList
@@ -79,6 +80,7 @@ export function App() {
                 onSelectConversation={(conversationId) => void chat.selectConversation(conversationId)}
                 onStartNewConversation={chat.startNewConversation}
                 onRefresh={() => void chat.loadConversations()}
+                onDeleteAll={() => void chat.clearConversations()}
               />
             </>
           )}
@@ -99,6 +101,8 @@ export function App() {
                         isLoading={chat.isLoadingDocuments}
                         scope={chat.scope}
                         onScopeChange={chat.setScope}
+                        onApplyScope={chat.applyScope}
+                        hasPendingScopeChanges={chat.hasPendingScopeChanges}
                         onRefreshDocuments={() => void chat.loadDocuments()}
                       />
                     )}

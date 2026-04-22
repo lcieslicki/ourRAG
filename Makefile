@@ -1,4 +1,4 @@
-.PHONY: help init infra-up infra-build infra-down infra-logs infra-ps backend-shell backend-run backend-test db-upgrade db-downgrade db-current db-revision frontend-shell frontend-run frontend-test
+.PHONY: help init infra-up infra-build infra-down infra-logs infra-ps ollama-refresh backend-shell backend-run backend-test db-upgrade db-downgrade db-current db-revision frontend-shell frontend-run frontend-test
 
 COMPOSE_FILE := infra/docker/compose.local.yml
 COMPOSE_ENV_FILES := --env-file .env.example --env-file .env.docker.example
@@ -25,6 +25,7 @@ help:
 	@echo "  make infra-down               Stop the local stack"
 	@echo "  make infra-logs               Follow all container logs"
 	@echo "  make infra-ps                 Show container status"
+	@echo "  make ollama-refresh           Rebuild Ollama and pull OLLAMA_MODEL"
 	@echo ""
 	@echo "Backend commands run inside the backend container:"
 	@echo "  make backend-shell            Open a shell in backend"
@@ -57,6 +58,11 @@ infra-logs:
 
 infra-ps:
 	$(COMPOSE) ps
+
+ollama-refresh:
+	@test -n "$(OLLAMA_MODEL)" || (echo "Usage: make ollama-refresh OLLAMA_MODEL='bielik'"; exit 1)
+	$(COMPOSE) up -d --build ollama
+	$(COMPOSE) exec ollama ollama pull "$(OLLAMA_MODEL)"
 
 backend-shell:
 	$(COMPOSE) exec backend sh

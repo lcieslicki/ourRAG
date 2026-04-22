@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.domain.errors import ConversationAccessDenied
@@ -43,6 +43,16 @@ class ConversationService:
         self.session.add(conversation)
         self.session.flush()
         return conversation
+
+    def delete_workspace_conversations(self, *, user_id: str, workspace_id: str) -> int:
+        self.access.ensure_workspace_member(user_id=user_id, workspace_id=workspace_id)
+        result = self.session.execute(
+            delete(Conversation).where(
+                Conversation.workspace_id == workspace_id,
+                Conversation.user_id == user_id,
+            )
+        )
+        return int(result.rowcount or 0)
 
     def get_conversation(self, *, user_id: str, conversation_id: str) -> Conversation:
         conversation = self.session.scalar(

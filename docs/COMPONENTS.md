@@ -115,6 +115,11 @@ Responsibilities:
 - handle retries,
 - apply runtime options.
 
+Implementation notes:
+
+- Uses a single persistent `httpx.Client` (connection pooling, created at gateway init).
+- Generation call is dispatched via `asyncio.run_in_executor` to avoid blocking the FastAPI event loop during LLM inference.
+
 ## MemoryService
 Responsibilities:
 
@@ -184,3 +189,9 @@ Responsibilities:
 Responsibilities:
 
 - generate final answers in Polish.
+
+Deployment:
+
+- Can run natively on the host (recommended on Apple Silicon — uses Metal GPU) or as a Docker container (`--profile ollama`).
+- Recommended model: `SpeakLeash/bielik-11b-v2.3-instruct:Q4_K_M` (~6 GB RAM, good quality/speed tradeoff).
+- `OLLAMA_HOST` must be set to match the chosen mode (see CONFIGURATION.md).

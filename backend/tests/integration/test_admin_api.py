@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.api.dependencies.db import get_db
+from app.core.config.settings import get_settings
 from app.infrastructure.storage.local import LocalFileStorage, get_local_file_storage
 from app.main import app
 from app.domain.models import Audit
@@ -191,6 +192,123 @@ def test_admin_can_get_user_and_workspace(db_session, tmp_path) -> None:
     assert user_response.json()["id"] == user.id
     assert workspace_response.status_code == 200
     assert workspace_response.json()["id"] == workspace.id
+
+
+def test_admin_can_update_workspace_name_slug_and_data_folder(db_session, tmp_path) -> None:
+    admin = create_user(db_session)
+    workspace = create_workspace(db_session, slug_prefix="przed")
+    create_membership(db_session, user=admin, workspace=workspace, role="admin")
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.put(
+            f"/api/admin/workspaces/{workspace.id}",
+            headers={"X-User-Id": admin.id},
+            json={"name": "Po zmianie", "slug": "firma_po_zmianie", "data_folder": "firma_ABC"},
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["name"] == "Po zmianie"
+    assert payload["slug"] == "firma_po_zmianie"
+    assert payload["data_folder"] == "firma_ABC"
+
+
+def test_update_workspace_rejects_taken_slug(db_session, tmp_path) -> None:
+    admin = create_user(db_session)
+    first = create_workspace(db_session, slug_prefix="pierwszy")
+    second = create_workspace(db_session, slug_prefix="drugi")
+    create_membership(db_session, user=admin, workspace=first, role="admin")
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.put(
+            f"/api/admin/workspaces/{first.id}",
+            headers={"X-User-Id": admin.id},
+            json={"name": first.name, "slug": second.slug, "data_folder": None},
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "slug_taken"
+
+
+def test_workspace_member_cannot_update_workspace(db_session, tmp_path) -> None:
+    member = create_user(db_session)
+    workspace = create_workspace(db_session)
+    create_membership(db_session, user=member, workspace=workspace, role="member")
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.put(
+            f"/api/admin/workspaces/{workspace.id}",
+            headers={"X-User-Id": member.id},
+            json={"name": workspace.name, "slug": workspace.slug, "data_folder": "firma_ABC"},
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "workspace_access_denied"
+
+
+def test_admin_upload_documents_uses_current_user_context(db_session, tmp_path) -> None:
+    admin = create_user(db_session)
+    workspace = create_workspace(db_session)
+    create_membership(db_session, user=admin, workspace=workspace, role="admin")
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.post(
+            f"/api/admin/workspaces/{workspace.id}/documents/upload",
+            headers={"X-User-Id": admin.id},
+            files=[("files", ("hr_polityka.md", b"# Regulamin\n\nTresc dokumentu.", "text/markdown"))],
+        )
+    finally:
+        clear_overrides()
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert len(payload["failed"]) == 0
+    assert len(payload["indexed"]) == 1
+    assert payload["indexed"][0]["file_name"] == "hr_polityka.md"
+
+
+def test_admin_index_folder_uses_current_user_context(db_session, tmp_path, monkeypatch) -> None:
+    admin = create_user(db_session)
+    workspace = create_workspace(db_session)
+    create_membership(db_session, user=admin, workspace=workspace, role="admin")
+    workspace.settings_json = {"data_folder": "firma_test"}
+    db_session.add(workspace)
+    db_session.commit()
+
+    data_folder = tmp_path / "firma_test"
+    data_folder.mkdir(parents=True, exist_ok=True)
+    (data_folder / "zasady.md").write_text("# Zasady\n\nDokument testowy.", encoding="utf-8")
+
+    monkeypatch.setenv("DATA_ROOT", str(tmp_path))
+    get_settings.cache_clear()
+    client = client_with_dependencies(db_session, tmp_path)
+
+    try:
+        response = client.post(
+            f"/api/admin/workspaces/{workspace.id}/documents/index-folder",
+            headers={"X-User-Id": admin.id},
+            json={},
+        )
+    finally:
+        clear_overrides()
+        get_settings.cache_clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["folder"] == "firma_test"
+    assert payload["files_found"] == 1
+    assert len(payload["failed"]) == 0
+    assert len(payload["indexed"]) == 1
 
 
 def test_delete_user_rejects_when_user_has_membership(db_session, tmp_path) -> None:

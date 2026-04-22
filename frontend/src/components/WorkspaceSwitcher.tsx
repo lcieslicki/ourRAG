@@ -1,4 +1,5 @@
 import type { Session } from "../features/auth/LoginScreen";
+import { pl } from "../i18n/pl";
 
 type Props = {
   session: Session;
@@ -13,7 +14,7 @@ export function WorkspaceSwitcher({ session, onLogout }: Props) {
         <span className="session-value">{session.userEmail}</span>
       </div>
       <div className="session-row">
-        <span className="session-label">Workspace</span>
+        <span className="session-label">{pl.workspaceSwitcher.workspaceLabel}</span>
         <span className="session-value">{session.workspaceName}</span>
       </div>
       <button type="button" className="session-change-btn" onClick={onLogout}>

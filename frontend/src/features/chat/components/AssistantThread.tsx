@@ -1,6 +1,7 @@
 import { ComposerPrimitive, MessagePrimitive, ThreadPrimitive, useMessage } from "@assistant-ui/react";
 
 import type { ChatProcessingLogEvent } from "../../../lib/api/types";
+import { pl } from "../../../i18n/pl";
 
 type AssistantThreadProps = {
   chatLogsByMessage: Record<string, ChatProcessingLogEvent[]>;
@@ -13,8 +14,8 @@ export function AssistantThread({ chatLogsByMessage }: AssistantThreadProps) {
       <ThreadPrimitive.Viewport className="assistant-thread-viewport">
         <ThreadPrimitive.Empty>
           <div className="assistant-empty">
-            <h3>Ask a question about the selected workspace.</h3>
-            <p>Sources and scope controls will be rendered here as the backend surface expands.</p>
+            <h3>{pl.assistantThread.emptyTitle}</h3>
+            <p>{pl.assistantThread.emptyHint}</p>
           </div>
         </ThreadPrimitive.Empty>
         <ThreadPrimitive.Messages
@@ -23,15 +24,15 @@ export function AssistantThread({ chatLogsByMessage }: AssistantThreadProps) {
             AssistantMessage,
           }}
         />
-        <ThreadPrimitive.ScrollToBottom className="scroll-button">Scroll to bottom</ThreadPrimitive.ScrollToBottom>
+        <ThreadPrimitive.ScrollToBottom className="scroll-button">{pl.assistantThread.scrollToBottom}</ThreadPrimitive.ScrollToBottom>
       </ThreadPrimitive.Viewport>
       <ComposerPrimitive.Root className="assistant-composer">
         <ComposerPrimitive.Input
           className="assistant-input"
-          placeholder="Ask a question..."
+          placeholder={pl.assistantThread.inputPlaceholder}
           rows={2}
         />
-        <ComposerPrimitive.Send className="assistant-send">Send</ComposerPrimitive.Send>
+        <ComposerPrimitive.Send className="assistant-send">{pl.assistantThread.send}</ComposerPrimitive.Send>
       </ComposerPrimitive.Root>
     </ThreadPrimitive.Root>
   );
@@ -45,11 +46,11 @@ function UserMessage({ chatLogsByMessage }: AssistantThreadProps) {
   return (
     <MessagePrimitive.Root className="message-row message-row-user">
       <div className="message-bubble user-bubble user-bubble-with-logs">
-        <div className="question-label">Question</div>
+        <div className="question-label">{pl.assistantThread.questionLabel}</div>
         <MessagePrimitive.Parts />
         {logs.length > 0 ? (
           <details className="chat-logs-panel">
-            <summary>Processing logs ({logs.length})</summary>
+            <summary>{pl.assistantThread.processingLogs} ({logs.length})</summary>
             <div className="chat-logs-content">
               {Object.entries(groupedLogs).map(([category, categoryLogs]) => (
                 <section key={category} className="chat-logs-category">
@@ -84,7 +85,7 @@ function AssistantMessage() {
 
 function groupLogsByCategory(logs: ChatProcessingLogEvent[]): Record<string, ChatProcessingLogEvent[]> {
   return logs.reduce<Record<string, ChatProcessingLogEvent[]>>((acc, logEvent) => {
-    const key = logEvent.category || "other";
+    const key = logEvent.category || pl.assistantThread.otherCategory;
     acc[key] = [...(acc[key] ?? []), logEvent];
     return acc;
   }, {});

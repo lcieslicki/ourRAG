@@ -1,10 +1,13 @@
 import type { DocumentListItem, RetrievalScope } from "../../lib/api/types";
+import { pl } from "../../i18n/pl";
 
 type ScopeFiltersProps = {
   documents: readonly DocumentListItem[];
   isLoading: boolean;
   scope: RetrievalScope;
   onScopeChange: (scope: RetrievalScope) => void;
+  onApplyScope: () => void;
+  hasPendingScopeChanges: boolean;
   onRefreshDocuments: () => void;
 };
 
@@ -13,24 +16,26 @@ export function ScopeFilters({
   isLoading,
   scope,
   onScopeChange,
+  onApplyScope,
+  hasPendingScopeChanges,
   onRefreshDocuments,
 }: ScopeFiltersProps) {
   const categories = Array.from(new Set(documents.map((document) => document.category).filter(Boolean))).sort();
   const selectedDocumentIds = new Set(scope.document_ids ?? []);
 
   return (
-    <section className="scope-filters" aria-label="Retrieval scope">
+    <section className="scope-filters" aria-label={pl.scope.ariaLabel}>
       <div className="scope-header">
         <div>
-          <h3>Scope</h3>
-          <p>Optional retrieval filters. Backend validates access and eligibility.</p>
+          <h3>{pl.scope.title}</h3>
+          <p>{pl.scope.hint}</p>
         </div>
         <button type="button" onClick={onRefreshDocuments} disabled={isLoading}>
-          Refresh docs
+          {pl.scope.refreshDocs}
         </button>
       </div>
 
-      <div className="scope-mode-group" role="radiogroup" aria-label="Scope mode">
+      <div className="scope-mode-group" role="radiogroup" aria-label={pl.scope.modeAria}>
         <label>
           <input
             type="radio"
@@ -38,7 +43,7 @@ export function ScopeFilters({
             checked={scope.mode === "all"}
             onChange={() => onScopeChange({ mode: "all" })}
           />
-          All active documents
+          {pl.scope.allDocs}
         </label>
         <label>
           <input
@@ -47,7 +52,7 @@ export function ScopeFilters({
             checked={scope.mode === "category"}
             onChange={() => onScopeChange({ mode: "category", category: categories[0] ?? "" })}
           />
-          Category
+          {pl.scope.category}
         </label>
         <label>
           <input
@@ -56,18 +61,18 @@ export function ScopeFilters({
             checked={scope.mode === "documents"}
             onChange={() => onScopeChange({ mode: "documents", document_ids: [] })}
           />
-          Selected documents
+          {pl.scope.selectedDocs}
         </label>
       </div>
 
       {scope.mode === "category" ? (
         <label className="scope-field">
-          Category
+          {pl.scope.category}
           <select
             value={scope.category ?? ""}
             onChange={(event) => onScopeChange({ mode: "category", category: event.target.value })}
           >
-            <option value="">Choose category</option>
+            <option value="">{pl.scope.chooseCategory}</option>
             {categories.map((category) => (
               <option key={category} value={category}>
                 {category}
@@ -79,7 +84,7 @@ export function ScopeFilters({
 
       {scope.mode === "documents" ? (
         <div className="scope-document-list">
-          {documents.length === 0 ? <p className="muted">No documents loaded for this workspace.</p> : null}
+          {documents.length === 0 ? <p className="muted">{pl.scope.noDocs}</p> : null}
           {documents.map((document) => (
             <label key={document.id} className="scope-document-option">
               <input
@@ -103,6 +108,13 @@ export function ScopeFilters({
           ))}
         </div>
       ) : null}
+
+      <div className="scope-actions">
+        <button type="button" onClick={onApplyScope} disabled={!hasPendingScopeChanges}>
+          {pl.scope.apply}
+        </button>
+        {hasPendingScopeChanges ? <p className="muted">{pl.scope.unappliedChanges}</p> : null}
+      </div>
     </section>
   );
 }

@@ -163,6 +163,8 @@ class IngestionJobRunner:
             workspace_id=document.workspace_id,
             document_version_id=version.id,
             language=version.language,
+            document_id=document.id,
+            document_name=document.title,
         )
         chunks_path = self.storage.chunks_path(
             workspace_id=document.workspace_id,
@@ -320,6 +322,7 @@ def serialize_chunk(chunk: DocumentChunk) -> dict[str, Any]:
         "workspace_id": chunk.workspace_id,
         "language": chunk.language,
         "chunking_strategy_version": chunk.chunking_strategy_version,
+        "metadata": chunk.metadata,
     }
 
 
@@ -333,6 +336,7 @@ def deserialize_chunk(raw: dict[str, Any]) -> DocumentChunk:
         workspace_id=str(raw["workspace_id"]),
         language=str(raw["language"]),
         chunking_strategy_version=str(raw["chunking_strategy_version"]),
+        metadata=dict(raw.get("metadata") or {}),
     )
 
 
@@ -354,6 +358,7 @@ def vector_point_from_artifact(*, version: DocumentVersion, raw: dict[str, Any])
         section_path=list(chunk.section_path),
         language=chunk.language,
         is_active=version.is_active and not version.is_invalidated and document.status == "active",
+        chunk_metadata=chunk.metadata,
         embedding=EmbeddingMetadata(
             provider=str(embedding["provider"]),
             model_name=str(embedding["model_name"]),

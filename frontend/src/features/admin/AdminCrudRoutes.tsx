@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import type { ApiClient } from "../../lib/api/client";
 import type {
   AdminDocumentListItem,
-  AdminProcessingJob,
   AdminUserResponse,
   AdminWorkspaceMemberResponse,
   AdminWorkspaceResponse,
@@ -17,6 +16,7 @@ export function AdminCrudRoutes({ apiClient }: Props) {
       <Route path="/" element={<Navigate to="/admin/workspaces" replace />} />
       <Route path="/workspaces" element={<WorkspaceListView apiClient={apiClient} />} />
       <Route path="/workspaces/new" element={<WorkspaceCreateView apiClient={apiClient} />} />
+      <Route path="/workspaces/:workspaceId/edit" element={<WorkspaceEditView apiClient={apiClient} />} />
       <Route path="/workspaces/:workspaceId" element={<WorkspaceDetailsView apiClient={apiClient} />} />
       <Route path="/users" element={<UsersListView apiClient={apiClient} />} />
       <Route path="/users/new" element={<UserCreateView apiClient={apiClient} />} />
@@ -49,7 +49,7 @@ function UsersListView({ apiClient }: Props) {
         <div className="admin-list-block">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h3>Użytkownicy ({users.length})</h3>
-            <Link className="admin-btn-small" to="/admin/users/new">Utwórz nowego usera</Link>
+            <Link className="admin-btn-small" to="/admin/users/new">Utwórz nowego użytkownika</Link>
           </div>
           {error && <div className="error-banner">{error}</div>}
           {users.length === 0 ? (
@@ -106,13 +106,13 @@ function UserCreateView({ apiClient }: Props) {
       <AdminHeader />
       <div className="admin-content">
         <div className="admin-form-block">
-          <h3>Nowy user</h3>
+          <h3>Nowy użytkownik</h3>
           {error && <div className="error-banner">{error}</div>}
           <form className="admin-form" onSubmit={(e) => void handleCreate(e)}>
             <label>Email<input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required /></label>
             <label>Nazwa wyświetlana<input value={displayName} onChange={(e) => setDisplayName(e.target.value)} required /></label>
             <div style={{ display: "flex", gap: 8 }}>
-              <button type="submit" disabled={saving || !email.trim() || !displayName.trim()}>{saving ? "Tworzenie..." : "Utwórz usera"}</button>
+              <button type="submit" disabled={saving || !email.trim() || !displayName.trim()}>{saving ? "Tworzenie..." : "Utwórz użytkownika"}</button>
               <Link className="admin-btn-small" to="/admin/users">Powrót do listy</Link>
             </div>
           </form>
@@ -137,7 +137,7 @@ function UserDetailsView({ apiClient }: Props) {
 
   async function handleDelete() {
     if (!userId) return;
-    const ok = window.confirm("Usunąć tego usera?");
+    const ok = window.confirm("Usunąć tego użytkownika?");
     if (!ok) return;
     setDeleting(true);
     try {
@@ -155,7 +155,7 @@ function UserDetailsView({ apiClient }: Props) {
       <AdminHeader />
       <div className="admin-content">
         <div className="admin-list-block">
-          <h3>Podgląd usera</h3>
+          <h3>Podgląd użytkownika</h3>
           {error && <div className="error-banner">{error}</div>}
           {loading ? <p className="muted">Ładowanie...</p> : user ? (
             <>
@@ -165,12 +165,12 @@ function UserDetailsView({ apiClient }: Props) {
               <p><strong>Status:</strong> {user.status}</p>
               <div style={{ display: "flex", gap: 8 }}>
                 <button className="admin-btn-small" type="button" onClick={() => void handleDelete()} disabled={deleting}>
-                  {deleting ? "Usuwanie..." : "Usuń usera"}
+                  {deleting ? "Usuwanie..." : "Usuń użytkownika"}
                 </button>
                 <Link className="admin-btn-small" to="/admin/users">Powrót do listy</Link>
               </div>
             </>
-          ) : <p className="muted">Nie znaleziono usera.</p>}
+          ) : <p className="muted">Nie znaleziono użytkownika.</p>}
         </div>
       </div>
     </div>
@@ -191,12 +191,12 @@ function WorkspaceListView({ apiClient }: Props) {
       <div className="admin-content">
         <div className="admin-list-block">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h3>Workspace&apos;y ({workspaces.length})</h3>
-            <Link className="admin-btn-small" to="/admin/workspaces/new">Utwórz nowy workspace</Link>
+            <h3>Przestrzenie robocze ({workspaces.length})</h3>
+            <Link className="admin-btn-small" to="/admin/workspaces/new">Utwórz nową przestrzeń roboczą</Link>
           </div>
           {error && <div className="error-banner">{error}</div>}
           {workspaces.length === 0 ? (
-            <p className="muted">Brak workspace&apos;ów.</p>
+            <p className="muted">Brak przestrzeni roboczych.</p>
           ) : (
             <table className="admin-table">
               <thead>
@@ -224,6 +224,7 @@ function WorkspaceCreateView({ apiClient }: Props) {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
+  const [dataFolder, setDataFolder] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -234,6 +235,13 @@ function WorkspaceCreateView({ apiClient }: Props) {
     setError(null);
     try {
       const workspace = await apiClient.adminCreateWorkspace({ name: name.trim(), slug: slug.trim() });
+      if (dataFolder.trim()) {
+        await apiClient.adminUpdateWorkspace(workspace.id, {
+          name: workspace.name,
+          slug: workspace.slug,
+          data_folder: dataFolder.trim(),
+        });
+      }
       navigate(`/admin/workspaces/${workspace.id}`);
     } catch (err) {
       setError(String(err));
@@ -247,16 +255,82 @@ function WorkspaceCreateView({ apiClient }: Props) {
       <AdminHeader />
       <div className="admin-content">
         <div className="admin-form-block">
-          <h3>Nowy workspace</h3>
+          <h3>Nowa przestrzeń robocza</h3>
           {error && <div className="error-banner">{error}</div>}
           <form className="admin-form" onSubmit={(e) => void handleCreate(e)}>
             <label>Nazwa<input value={name} onChange={(e) => setName(e.target.value)} required /></label>
             <label>Slug<input value={slug} onChange={(e) => setSlug(e.target.value)} required /></label>
+            <label>Folder danych<input value={dataFolder} onChange={(e) => setDataFolder(e.target.value)} placeholder="np. firma_ABC" /></label>
             <div style={{ display: "flex", gap: 8 }}>
-              <button type="submit" disabled={saving || !name.trim() || !slug.trim()}>{saving ? "Tworzenie..." : "Utwórz workspace"}</button>
+              <button type="submit" disabled={saving || !name.trim() || !slug.trim()}>{saving ? "Tworzenie..." : "Utwórz przestrzeń roboczą"}</button>
               <Link className="admin-btn-small" to="/admin/workspaces">Powrót do listy</Link>
             </div>
           </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceEditView({ apiClient }: Props) {
+  const { workspaceId } = useParams();
+  const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [dataFolder, setDataFolder] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    void apiClient.adminGetWorkspace(workspaceId)
+      .then((workspace) => {
+        setName(workspace.name);
+        setSlug(workspace.slug);
+        setDataFolder(workspace.data_folder ?? "");
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
+  }, [apiClient, workspaceId]);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!workspaceId || !name.trim() || !slug.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await apiClient.adminUpdateWorkspace(workspaceId, {
+        name: name.trim(),
+        slug: slug.trim(),
+        data_folder: dataFolder.trim() || null,
+      });
+      navigate(`/admin/workspaces/${workspaceId}`);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="admin-panel">
+      <AdminHeader />
+      <div className="admin-content">
+        <div className="admin-form-block">
+          <h3>Edycja workspace</h3>
+          {error && <div className="error-banner">{error}</div>}
+          {loading ? <p className="muted">Ładowanie...</p> : (
+            <form className="admin-form" onSubmit={(e) => void handleSave(e)}>
+              <label>Nazwa<input value={name} onChange={(e) => setName(e.target.value)} required /></label>
+              <label>Slug<input value={slug} onChange={(e) => setSlug(e.target.value)} required /></label>
+              <label>Folder danych<input value={dataFolder} onChange={(e) => setDataFolder(e.target.value)} placeholder="np. firma_ABC" /></label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="submit" disabled={saving || !name.trim() || !slug.trim()}>{saving ? "Zapisywanie..." : "Zapisz zmiany"}</button>
+                {workspaceId && <Link className="admin-btn-small" to={`/admin/workspaces/${workspaceId}`}>Powrót do podglądu</Link>}
+              </div>
+            </form>
+          )}
         </div>
       </div>
     </div>
@@ -271,6 +345,8 @@ function WorkspaceDetailsView({ apiClient }: Props) {
   const [members, setMembers] = useState<AdminWorkspaceMemberResponse[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [indexing, setIndexing] = useState(false);
+  const [warnings, setWarnings] = useState<{ file_name: string; error: string }[]>([]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -289,7 +365,7 @@ function WorkspaceDetailsView({ apiClient }: Props) {
 
   async function handleDeleteWorkspace() {
     if (!workspaceId) return;
-    const ok = window.confirm("Usunąć workspace? Operacja jest nieodwracalna.");
+    const ok = window.confirm("Usunąć przestrzeń roboczą? Operacja jest nieodwracalna.");
     if (!ok) return;
     setDeleting(true);
     try {
@@ -302,6 +378,20 @@ function WorkspaceDetailsView({ apiClient }: Props) {
     }
   }
 
+  async function handleIndexFolder() {
+    if (!workspaceId || !workspace?.data_folder) return;
+    setIndexing(true);
+    setWarnings([]);
+    try {
+      const res = await apiClient.adminIndexFolder(workspaceId);
+      setWarnings(res.failed);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setIndexing(false);
+    }
+  }
+
   if (!workspaceId) return null;
 
   return (
@@ -309,19 +399,30 @@ function WorkspaceDetailsView({ apiClient }: Props) {
       <AdminHeader />
       <div className="admin-content">
         <div className="admin-list-block">
-          <h3>Podgląd workspace</h3>
+          <h3>Podgląd przestrzeni roboczej</h3>
           {error && <div className="error-banner">{error}</div>}
           {!workspace ? <p className="muted">Ładowanie...</p> : (
             <>
               <p><strong>ID:</strong> <code>{workspace.id}</code></p>
               <p><strong>Nazwa:</strong> {workspace.name}</p>
               <p><strong>Slug:</strong> <code>{workspace.slug}</code></p>
+              <p><strong>Folder danych:</strong> {workspace.data_folder ? <code>{workspace.data_folder}</code> : <span className="muted">Nie ustawiono</span>}</p>
               <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                <button
+                  className="admin-btn-small"
+                  type="button"
+                  onClick={() => void handleIndexFolder()}
+                  disabled={indexing || !workspace.data_folder}
+                >
+                  {indexing ? "Indeksowanie..." : "Indeksuj folder"}
+                </button>
+                <Link className="admin-btn-small" to={`/admin/workspaces/${workspace.id}/edit`}>Edytuj przestrzeń roboczą</Link>
                 <button className="admin-btn-small" type="button" onClick={() => void handleDeleteWorkspace()} disabled={deleting}>
-                  {deleting ? "Usuwanie..." : "Usuń workspace"}
+                  {deleting ? "Usuwanie..." : "Usuń przestrzeń roboczą"}
                 </button>
                 <Link className="admin-btn-small" to="/admin/workspaces">Powrót do listy</Link>
               </div>
+              {warnings.length > 0 && <div className="error-banner">{warnings.map((w) => <div key={w.file_name}>{w.file_name}: {w.error}</div>)}</div>}
               <MembersBlock
                 workspace={workspace}
                 members={members}
@@ -332,8 +433,6 @@ function WorkspaceDetailsView({ apiClient }: Props) {
               />
               <DocumentsBlock
                 workspace={workspace}
-                users={users}
-                onWorkspaceUpdated={setWorkspace}
                 apiClient={apiClient}
                 onError={setError}
               />
@@ -376,7 +475,7 @@ function MembersBlock({ workspace, members, users, onMemberAdded, apiClient, onE
 
   return (
     <div className="admin-members-block">
-      <h3>Zarządzanie użytkownikami workspace</h3>
+      <h3>Zarządzanie użytkownikami przestrzeni roboczej</h3>
       {members.length === 0 ? <p className="muted">Brak członków.</p> : (
         <table className="admin-table">
           <thead><tr><th>Email</th><th>Nazwa</th><th>Rola</th></tr></thead>
@@ -392,7 +491,7 @@ function MembersBlock({ workspace, members, users, onMemberAdded, apiClient, onE
           <label>
             Użytkownik
             <select value={userId} onChange={(e) => setUserId(e.target.value)} required>
-              <option value="">Wybierz...</option>
+              <option value="">Wybierz…</option>
               {availableUsers.map((u) => <option key={u.id} value={u.id}>{u.email} - {u.display_name}</option>)}
             </select>
           </label>
@@ -412,93 +511,48 @@ function MembersBlock({ workspace, members, users, onMemberAdded, apiClient, onE
   );
 }
 
-function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onError }: {
+function DocumentsBlock({ workspace, apiClient, onError }: {
   workspace: AdminWorkspaceResponse;
-  users: AdminUserResponse[];
-  onWorkspaceUpdated: (w: AdminWorkspaceResponse) => void;
   apiClient: ApiClient;
   onError: (e: string) => void;
 }) {
   const [documents, setDocuments] = useState<AdminDocumentListItem[]>([]);
-  const [userId, setUserId] = useState("");
-  const [category, setCategory] = useState("admin");
   const [files, setFiles] = useState<FileList | null>(null);
-  const [folderEdit, setFolderEdit] = useState(workspace.data_folder ?? "");
-  const [savingFolder, setSavingFolder] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [indexing, setIndexing] = useState(false);
   const [warnings, setWarnings] = useState<{ file_name: string; error: string }[]>([]);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
-  const [processingJobs, setProcessingJobs] = useState<AdminProcessingJob[]>([]);
-  const [loadingJobs, setLoadingJobs] = useState(false);
-  const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkReindexing, setBulkReindexing] = useState(false);
+  const [bulkFeedback, setBulkFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     void loadDocuments();
-    void loadProcessingJobs();
-    setFolderEdit(workspace.data_folder ?? "");
   }, [workspace.id]);
 
   async function loadDocuments() {
     try {
       setDocuments(await apiClient.adminListWorkspaceDocuments(workspace.id));
+      setSelectedDocumentIds(new Set());
     } catch (e) {
       onError(String(e));
-    }
-  }
-  async function loadProcessingJobs() {
-    setLoadingJobs(true);
-    try {
-      setProcessingJobs(await apiClient.adminListProcessingJobs(workspace.id));
-    } catch (e) {
-      onError(String(e));
-    } finally {
-      setLoadingJobs(false);
-    }
-  }
-  async function handleSaveFolder(e: React.FormEvent) {
-    e.preventDefault();
-    if (!folderEdit.trim()) return;
-    setSavingFolder(true);
-    try {
-      onWorkspaceUpdated(await apiClient.adminSetDataFolder(workspace.id, folderEdit.trim()));
-    } catch (e) {
-      onError(String(e));
-    } finally {
-      setSavingFolder(false);
     }
   }
   async function handleUpload() {
-    if (!files?.length || !userId) return;
+    if (!files?.length) return;
     setUploading(true);
     setWarnings([]);
     try {
-      const res = await apiClient.adminUploadDocuments(workspace.id, { userId, category, files });
+      const res = await apiClient.adminUploadDocuments(workspace.id, { files });
       setWarnings(res.failed);
       setFiles(null);
       if (uploadInputRef.current) uploadInputRef.current.value = "";
       await loadDocuments();
-      await loadProcessingJobs();
     } catch (e) {
       onError(String(e));
     } finally {
       setUploading(false);
-    }
-  }
-  async function handleIndexFolder() {
-    if (!userId) return;
-    setIndexing(true);
-    setWarnings([]);
-    try {
-      const res = await apiClient.adminIndexFolder(workspace.id, { user_id: userId, folder: null as unknown as string, category });
-      setWarnings(res.failed);
-      await loadDocuments();
-      await loadProcessingJobs();
-    } catch (e) {
-      onError(String(e));
-    } finally {
-      setIndexing(false);
     }
   }
   async function handleDeleteDocument(documentId: string) {
@@ -507,7 +561,6 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
     try {
       await apiClient.adminDeleteDocument(workspace.id, documentId);
       await loadDocuments();
-      await loadProcessingJobs();
     } catch (e) {
       onError(String(e));
     } finally {
@@ -515,87 +568,159 @@ function DocumentsBlock({ workspace, users, onWorkspaceUpdated, apiClient, onErr
     }
   }
 
+  function toggleDocumentSelection(documentId: string) {
+    setSelectedDocumentIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(documentId)) {
+        next.delete(documentId);
+      } else {
+        next.add(documentId);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    const visibleIds = documents.map((document) => document.id);
+    setSelectedDocumentIds((previous) => {
+      const allSelected = visibleIds.length > 0 && visibleIds.every((id) => previous.has(id));
+      if (allSelected) {
+        return new Set();
+      }
+      return new Set(visibleIds);
+    });
+  }
+
+  async function handleDeleteSelected() {
+    if (selectedDocumentIds.size === 0) return;
+    const ok = window.confirm(`Usunąć ${selectedDocumentIds.size} zaznaczonych dokumentów?`);
+    if (!ok) return;
+    setBulkDeleting(true);
+    setBulkFeedback(null);
+    let successCount = 0;
+    let failureCount = 0;
+    try {
+      for (const documentId of selectedDocumentIds) {
+        try {
+          await apiClient.adminDeleteDocument(workspace.id, documentId);
+          successCount += 1;
+        } catch {
+          failureCount += 1;
+        }
+      }
+      await loadDocuments();
+      setBulkFeedback(`Usunięto: ${successCount}, błędy: ${failureCount}.`);
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
+  async function handleReindexSelected() {
+    if (selectedDocumentIds.size === 0) return;
+    setBulkReindexing(true);
+    setBulkFeedback(null);
+    let queuedCount = 0;
+    let skippedCount = 0;
+    let failureCount = 0;
+    const selectedDocuments = documents.filter((document) => selectedDocumentIds.has(document.id));
+    try {
+      for (const document of selectedDocuments) {
+        if (!document.latest_version_id || document.is_active === false) {
+          skippedCount += 1;
+          continue;
+        }
+        try {
+          await apiClient.reindexDocumentVersion(document.id, document.latest_version_id);
+          queuedCount += 1;
+        } catch {
+          failureCount += 1;
+        }
+      }
+      await loadDocuments();
+      setBulkFeedback(`Do reprocessingu: ${queuedCount}, pominięte: ${skippedCount}, błędy: ${failureCount}.`);
+    } finally {
+      setBulkReindexing(false);
+    }
+  }
+
+  const allVisibleSelected =
+    documents.length > 0 && documents.every((document) => selectedDocumentIds.has(document.id));
+
   return (
     <div className="admin-members-block">
-      <h3>Zarządzanie dokumentami workspace</h3>
-      <form className="admin-form admin-form-inline" onSubmit={(e) => void handleSaveFolder(e)}>
-        <label>Folder danych<input value={folderEdit} onChange={(e) => setFolderEdit(e.target.value)} placeholder="np. firma_ABC" /></label>
-        <button type="submit" disabled={savingFolder || !folderEdit.trim()}>{savingFolder ? "Zapisywanie..." : "Zapisz folder"}</button>
-      </form>
+      <h3>Zarządzanie dokumentami przestrzeni roboczej</h3>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-        <select value={userId} onChange={(e) => setUserId(e.target.value)}>
-          <option value="">Wybierz użytkownika...</option>
-          {users.map((u) => <option key={u.id} value={u.id}>{u.email}</option>)}
-        </select>
-        <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Kategoria" />
-        <button className="admin-btn-small" type="button" onClick={() => void handleIndexFolder()} disabled={indexing || !userId || !workspace.data_folder}>
-          {indexing ? "Indeksowanie..." : "Indeksuj folder"}
-        </button>
         <input ref={uploadInputRef} type="file" accept=".md" multiple onChange={(e) => setFiles(e.target.files)} />
-        <button className="admin-btn-small" type="button" onClick={() => void handleUpload()} disabled={uploading || !userId || !files?.length}>
-          {uploading ? "Przesyłanie..." : "Prześlij .md"}
+        <button className="admin-btn-small" type="button" onClick={() => void handleUpload()} disabled={uploading || !files?.length}>
+          {uploading ? "Przesyłanie..." : "Dodaj plik"}
         </button>
       </div>
       {warnings.length > 0 && <div className="error-banner">{warnings.map((w) => <div key={w.file_name}>{w.file_name}: {w.error}</div>)}</div>}
       <h4>Lista dokumentów ({documents.length})</h4>
+      {bulkFeedback && <div className="error-banner">{bulkFeedback}</div>}
+      {documents.length > 0 && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="checkbox" checked={allVisibleSelected} onChange={() => toggleSelectAllVisible()} />
+            Zaznacz wszystko (widoczne)
+          </label>
+          <span className="muted">Zaznaczono: {selectedDocumentIds.size}</span>
+          <button
+            className="admin-btn-small"
+            type="button"
+            onClick={() => void handleDeleteSelected()}
+            disabled={selectedDocumentIds.size === 0 || bulkDeleting || bulkReindexing}
+          >
+            {bulkDeleting ? "Usuwanie zaznaczonych..." : "Usuń zaznaczone"}
+          </button>
+          <button
+            className="admin-btn-small"
+            type="button"
+            onClick={() => void handleReindexSelected()}
+            disabled={selectedDocumentIds.size === 0 || bulkReindexing || bulkDeleting}
+          >
+            {bulkReindexing ? "Kolejkowanie..." : "Prześlij zaznaczone do przetwarzania"}
+          </button>
+        </div>
+      )}
       {documents.length === 0 ? <p className="muted">Brak dokumentów.</p> : (
         <table className="admin-table">
-          <thead><tr><th>Tytuł</th><th>Status</th><th>Wersje</th><th>Akcje</th></tr></thead>
+          <thead><tr><th></th><th>Tytuł</th><th>Status</th><th>Wersje</th><th>Akcje</th></tr></thead>
           <tbody>
             {documents.map((d) => (
-              <tr key={d.id}>
-                <td>{d.title}</td>
-                <td>{d.latest_processing_status ?? "-"}</td>
-                <td>{d.version_count}</td>
-                <td>
-                  <button className="admin-btn-small" type="button" onClick={() => void handleDeleteDocument(d.id)} disabled={deletingDocumentId === d.id}>
-                    {deletingDocumentId === d.id ? "Usuwanie..." : "Usuń"}
-                  </button>
-                </td>
-              </tr>
+              <Fragment key={d.id}>
+                <tr>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selectedDocumentIds.has(d.id)}
+                      onChange={() => toggleDocumentSelection(d.id)}
+                    />
+                  </td>
+                  <td>{d.title}</td>
+                  <td>{d.latest_processing_status ?? "-"}</td>
+                  <td>{d.version_count}</td>
+                  <td>
+                    <button className="admin-btn-small" type="button" onClick={() => void handleDeleteDocument(d.id)} disabled={deletingDocumentId === d.id}>
+                      {deletingDocumentId === d.id ? "Usuwanie..." : "Usuń"}
+                    </button>
+                  </td>
+                </tr>
+                {d.latest_error_message && (
+                  <tr>
+                    <td></td>
+                    <td colSpan={4}>
+                      <div className="error-banner" style={{ margin: 0 }}>
+                        <strong>Błąd indeksacji{d.latest_error_job_type ? ` (${d.latest_error_job_type})` : ""}:</strong> {d.latest_error_message}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>
       )}
-      <div style={{ marginTop: 8 }}>
-        <h4>Błędy indeksacji</h4>
-        <button className="admin-btn-small" type="button" onClick={() => void loadProcessingJobs()}>{loadingJobs ? "Odświeżanie..." : "Odśwież"}</button>
-        {processingJobs.filter((j) => j.status === "failed").length === 0 ? <p className="muted">Brak błędów.</p> : (
-          <table className="admin-table">
-            <thead><tr><th>Dokument</th><th>Etap</th><th>Błąd</th><th>Akcja</th></tr></thead>
-            <tbody>
-              {processingJobs.filter((j) => j.status === "failed").slice(0, 20).map((job) => (
-                <tr key={job.id}>
-                  <td>{job.document_title}</td>
-                  <td>{job.job_type}</td>
-                  <td>{job.error_message ?? "-"}</td>
-                  <td>
-                    <button
-                      className="admin-btn-small"
-                      type="button"
-                      onClick={async () => {
-                        setRetryingJobId(job.id);
-                        try {
-                          await apiClient.adminRetryProcessingJob(workspace.id, job.id);
-                          await loadProcessingJobs();
-                          await loadDocuments();
-                        } catch (e) {
-                          onError(String(e));
-                        } finally {
-                          setRetryingJobId(null);
-                        }
-                      }}
-                      disabled={retryingJobId === job.id}
-                    >
-                      {retryingJobId === job.id ? "Ponawianie..." : "Ponów"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
     </div>
   );
 }
