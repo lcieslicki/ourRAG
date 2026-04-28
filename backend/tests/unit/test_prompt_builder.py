@@ -30,7 +30,7 @@ def test_prompt_builder_composes_system_context_memory_messages_and_current_user
     assert prompt.template_version == PROMPT_TEMPLATE_VERSION
     assert prompt.has_retrieval_context is True
     assert [message.role for message in prompt.messages] == ["system", "system", "system", "user", "assistant", "user"]
-    assert "Use only the supplied retrieved document context" in prompt.messages[0].content
+    assert "Use only the supplied retrieved document context and conversation memory" in prompt.messages[0].content
     assert "Workspace: ACME HR" in prompt.messages[1].content
     assert "[S1] HR Handbook" in prompt.messages[1].content
     assert "The user previously asked about leave policies." in prompt.messages[2].content

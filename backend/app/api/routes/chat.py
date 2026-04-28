@@ -10,13 +10,17 @@ from app.api.dependencies import CurrentUser, get_current_user, get_db
 from app.api.dependencies.llm import get_generation_gateway
 from app.api.dependencies.retrieval import get_query_embedding_service, get_retrieval_vector_index
 from app.api.routes.conversations import message_response
-from app.api.schemas.conversations import ChatAssistantMessageResponse, ChatRequest, ChatResponse
+from app.api.schemas.conversations import ChatAssistantMessageResponse, ChatRequest, ChatResponse, CitationResponse
 from app.core.config import get_settings
+from app.domain.citations import CitationService
+from app.domain.guardrails.service import GuardrailService
+from app.domain.reranking.service import LocalCrossEncoderReranker, RerankingService, SimpleScoreReranker
 from app.domain.embeddings import EmbeddingService
 from app.domain.errors import ConversationAccessDenied, DocumentAccessDenied, WorkspaceAccessDenied
 from app.domain.llm import GenerationRequest, LlmGateway
 from app.domain.prompting import PromptBuilder, PromptBuildInput
 from app.domain.services.conversations import ConversationService
+from app.domain.services.hybrid_retrieval import HybridRetrievalService
 from app.domain.services.memory import ConversationMemoryService
 from app.domain.services.retrieval import RetrievalScope, RetrievalService, RetrievedChunk, VectorIndexService
 from app.infrastructure.llm import OllamaGatewayError
@@ -110,19 +114,38 @@ async def send_chat_message(
                 "language": retrieval_scope.language,
             },
         )
-        await emit("retrieval", "started", "started", {"query": payload.message})
-        retrieval = RetrievalService(
-            session=db,
-            embedding_service=embedding_service,
-            vector_index=vector_index,
-            settings=settings,
-            debug_hook=debug_hook,
-        ).retrieve(
-            user_id=current_user.id,
-            workspace_id=payload.workspace_id,
-            query=payload.message,
-            scope=retrieval_scope,
+        await emit(
+            "retrieval",
+            "started",
+            "started",
+            {"query": payload.message, "mode": settings.hybrid_retrieval.mode},
         )
+        if settings.hybrid_retrieval.mode == "hybrid":
+            retrieval = HybridRetrievalService(
+                session=db,
+                embedding_service=embedding_service,
+                vector_index=vector_index,
+                settings=settings,
+                debug_hook=debug_hook,
+            ).retrieve(
+                user_id=current_user.id,
+                workspace_id=payload.workspace_id,
+                query=payload.message,
+                scope=retrieval_scope,
+            )
+        else:
+            retrieval = RetrievalService(
+                session=db,
+                embedding_service=embedding_service,
+                vector_index=vector_index,
+                settings=settings,
+                debug_hook=debug_hook,
+            ).retrieve(
+                user_id=current_user.id,
+                workspace_id=payload.workspace_id,
+                query=payload.message,
+                scope=retrieval_scope,
+            )
         user_message = conversation_service.append_user_message(
             user_id=current_user.id,
             workspace_id=payload.workspace_id,
@@ -130,6 +153,30 @@ async def send_chat_message(
             content=payload.message,
         )
         active_user_message_id = user_message.id
+        # ── Reranking (optional, after retrieval) ────────────────────────────
+        rerank_cfg = settings.reranking
+        if rerank_cfg.enabled:
+            await emit("reranking", "started", "started", {"candidate_count": len(retrieval.chunks)})
+            try:
+                provider = LocalCrossEncoderReranker() if rerank_cfg.provider == "local_cross_encoder" else SimpleScoreReranker()
+                reranker = RerankingService(
+                    provider=provider,
+                    enabled=True,
+                    timeout_ms=rerank_cfg.timeout_ms,
+                    fail_open=rerank_cfg.fail_open,
+                    final_top_k=rerank_cfg.final_top_k,
+                )
+                reranked_chunks = tuple(reranker.rerank(payload.message, retrieval.chunks))
+                from app.domain.services.retrieval import RetrievalResponse as _RetrievalResponse
+                retrieval = _RetrievalResponse(
+                    workspace_id=retrieval.workspace_id,
+                    query=retrieval.query,
+                    chunks=reranked_chunks,
+                )
+                await emit("reranking", "completed", "completed", {"final_count": len(reranked_chunks)})
+            except Exception as _rerank_exc:
+                await emit("reranking", "fallback", "failed", {"error": str(_rerank_exc)})
+
         await emit(
             "persistence",
             "user_message_saved",
@@ -152,6 +199,64 @@ async def send_chat_message(
                 "has_summary": memory.prompt_memory.summary is not None,
             },
         )
+
+        # ── Guardrails evaluation (A4) ────────────────────────────────────────
+        guardrail_cfg = settings.guardrails
+        guardrail_svc = GuardrailService(
+            enabled=guardrail_cfg.enabled,
+            in_scope_required=guardrail_cfg.in_scope_required,
+            min_top_score=guardrail_cfg.min_top_score,
+            min_usable_chunks=guardrail_cfg.min_usable_chunks,
+            use_template_responses=guardrail_cfg.use_template_responses,
+        )
+        guardrail_decision = guardrail_svc.evaluate(
+            query=payload.message,
+            retrieved_chunks=retrieval.chunks,
+        )
+        await emit(
+            "guardrails",
+            "evaluated",
+            "completed",
+            {
+                "response_mode": guardrail_decision.response_mode.value,
+                "guardrail_reason": guardrail_decision.guardrail_reason,
+            },
+        )
+
+        # For non-answer modes, short-circuit with template response (no LLM call)
+        if not guardrail_decision.should_generate:
+            template_text = guardrail_svc.get_template_response(guardrail_decision.response_mode) or ""
+            assistant_message = conversation_service.append_assistant_message(
+                user_id=current_user.id,
+                workspace_id=payload.workspace_id,
+                conversation_id=payload.conversation_id,
+                content=template_text,
+                response_metadata={
+                    "response_mode": guardrail_decision.response_mode.value,
+                    "guardrail_reason": guardrail_decision.guardrail_reason,
+                    "sources": [],
+                },
+            )
+            db.commit()
+            await emit("request", "completed", "completed", {"assistant_message_id": assistant_message.id})
+
+            # Return early with guardrail metadata and no citations
+            return ChatResponse(
+                conversation_id=payload.conversation_id,
+                user_message=message_response(user_message),
+                assistant_message=ChatAssistantMessageResponse(
+                    id=assistant_message.id,
+                    role="assistant",
+                    content=template_text,
+                    sources=[],
+                    retrieved_sources=[],
+                    cited_sources=[],
+                    response_mode=guardrail_decision.response_mode.value,
+                    guardrail_reason=guardrail_decision.guardrail_reason,
+                ),
+                usage={},
+            )
+
         await emit("prompt", "started", "started", {})
         prompt = PromptBuilder().build(
             PromptBuildInput(
@@ -178,7 +283,20 @@ async def send_chat_message(
                 GenerationRequest(messages=prompt.messages, metadata={"debug_hook": debug_hook})
             ),
         )
+        # Build normalized citation payload
+        citation_svc = CitationService(
+            max_exposed_citations=settings.citations.max_exposed_citations,
+            excerpt_max_chars=settings.citations.excerpt_max_chars,
+            include_retrieved_sources=settings.citations.include_retrieved_sources,
+            include_cited_sources=settings.citations.include_cited_sources,
+        )
+        workspace_id_for_citations = payload.workspace_id
+        retrieved_dtos = citation_svc.build_retrieved_sources(workspace_id_for_citations, retrieval.chunks)
+        cited_dtos = citation_svc.select_cited_sources(workspace_id_for_citations, retrieval.chunks)
+
+        # Legacy compatibility — keep `sources` field as flat list
         sources = sources_from_chunks(retrieval.chunks)
+
         assistant_message = conversation_service.append_assistant_message(
             user_id=current_user.id,
             workspace_id=payload.workspace_id,
@@ -191,6 +309,9 @@ async def send_chat_message(
                 "prompt_template_version": prompt.template_version,
                 "has_retrieval_context": prompt.has_retrieval_context,
                 "sources": sources,
+                "response_mode": guardrail_decision.response_mode.value,
+                "guardrail_reason": guardrail_decision.guardrail_reason,
+                "citation_count": len(cited_dtos),
             },
         )
         await emit(
@@ -201,6 +322,7 @@ async def send_chat_message(
                 "message_id": assistant_message.id,
                 "content_length": len(assistant_message.content_text),
                 "source_count": len(sources),
+                "cited_source_count": len(cited_dtos),
             },
         )
         db.commit()
@@ -242,6 +364,27 @@ async def send_chat_message(
             detail={"code": "chat_failed", "message": "Chat request failed."},
         ) from exc
 
+    def _dto_to_response(dto) -> CitationResponse:
+        return CitationResponse(
+            citation_id=dto.citation_id,
+            workspace_id=dto.workspace_id,
+            document_id=dto.document_id,
+            document_version_id=dto.document_version_id,
+            chunk_id=dto.chunk_id,
+            chunk_index=dto.chunk_index,
+            document_title=dto.document_title,
+            heading=dto.heading,
+            section_path=list(dto.section_path),
+            excerpt=dto.excerpt,
+            language=dto.language,
+            retrieval_score=dto.retrieval_score,
+            rank=dto.rank,
+            category=dto.category,
+            filename=dto.filename,
+            storage_uri=dto.storage_uri,
+            version_label=dto.version_label,
+        )
+
     return ChatResponse(
         conversation_id=payload.conversation_id,
         user_message=message_response(user_message),
@@ -250,6 +393,9 @@ async def send_chat_message(
             role="assistant",
             content=assistant_message.content_text,
             sources=sources,
+            retrieved_sources=[_dto_to_response(d) for d in retrieved_dtos] if settings.citations.include_retrieved_sources else [],
+            cited_sources=[_dto_to_response(d) for d in cited_dtos] if settings.citations.include_cited_sources else [],
+            response_mode=guardrail_decision.response_mode.value,
         ),
         usage={},
     )

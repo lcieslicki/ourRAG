@@ -4,6 +4,27 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
+class CitationResponse(BaseModel):
+    citation_id: str
+    workspace_id: str
+    document_id: str
+    document_version_id: str
+    chunk_id: str
+    chunk_index: int
+    document_title: str
+    heading: str | None
+    section_path: list[str]
+    excerpt: str
+    language: str | None
+    retrieval_score: float
+    rank: int
+    # optional
+    category: str | None = None
+    filename: str | None = None
+    storage_uri: str | None = None
+    version_label: str | None = None
+
+
 class ConversationSummaryResponse(BaseModel):
     id: str
     workspace_id: str
@@ -48,7 +69,13 @@ class ChatAssistantMessageResponse(BaseModel):
     id: str
     role: Literal["assistant"]
     content: str
+    # legacy compatibility field — maps to cited_sources
     sources: list[dict[str, Any]] = Field(default_factory=list)
+    # normalized citation payload (Step 2)
+    retrieved_sources: list[CitationResponse] = Field(default_factory=list)
+    cited_sources: list[CitationResponse] = Field(default_factory=list)
+    response_mode: str = "answer_from_context"
+    guardrail_reason: str | None = None
 
 
 class ChatResponse(BaseModel):

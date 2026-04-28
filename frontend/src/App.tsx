@@ -114,6 +114,8 @@ export function App() {
                       />
                     )}
                     sources={chat.latestSources}
+                    responseMode={chat.latestResponseMode}
+                    guardrailReason={chat.latestGuardrailReason}
                     chatLogsByMessage={chat.chatLogsByMessage}
                     chatReadiness={chat.chatReadiness}
                   />

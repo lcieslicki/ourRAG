@@ -9,6 +9,7 @@ from app.api.routes.conversations import router as conversations_router
 from app.api.routes.documents import router as documents_router
 from app.api.routes.workspaces import router as workspaces_router
 from app.core.config import get_settings
+from app.core.observability.middleware import CorrelationIdMiddleware
 from app.infrastructure.llm import OllamaGatewayError, get_llm_gateway
 
 settings = get_settings()
@@ -21,6 +22,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(CorrelationIdMiddleware)
 app.include_router(admin_router)
 app.include_router(workspaces_router)
 app.include_router(conversations_router)

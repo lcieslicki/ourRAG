@@ -1,6 +1,6 @@
 import { AssistantThread } from "./components/AssistantThread";
 import { SourcesPanel } from "./components/SourcesPanel";
-import type { ChatProcessingLogEvent, ChatSource } from "../../lib/api/types";
+import type { ChatProcessingLogEvent, CitationSource } from "../../lib/api/types";
 import type { ChatReadiness } from "./useWorkspaceChat";
 import type { ReactNode } from "react";
 import { AlertCircle, CheckCircle2, Loader2, MessageSquare, Workflow } from "lucide-react";
@@ -14,7 +14,9 @@ type ChatPageProps = {
   isLoadingConversation: boolean;
   isSending: boolean;
   scopeFilters: ReactNode;
-  sources: readonly ChatSource[];
+  sources: readonly CitationSource[];
+  responseMode: string;
+  guardrailReason: string | null;
   chatLogsByMessage: Record<string, ChatProcessingLogEvent[]>;
   chatReadiness: ChatReadiness;
 };
@@ -27,6 +29,8 @@ export function ChatPage({
   isSending,
   scopeFilters,
   sources,
+  responseMode,
+  guardrailReason,
   chatLogsByMessage,
   chatReadiness,
 }: ChatPageProps) {
@@ -99,7 +103,7 @@ export function ChatPage({
         <AssistantThread chatLogsByMessage={chatLogsByMessage} />
         <aside className="chat-aside">
           {scopeFilters}
-          <SourcesPanel sources={sources} />
+          <SourcesPanel sources={sources} responseMode={responseMode} guardrailReason={guardrailReason} />
         </aside>
       </div>
     </section>

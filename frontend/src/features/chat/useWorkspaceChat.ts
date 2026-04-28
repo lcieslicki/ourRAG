@@ -4,6 +4,7 @@ import type { ApiClient } from "../../lib/api/client";
 import type {
   ChatMessage,
   ChatSource,
+  CitationSource,
   ChatProcessingLogEvent,
   ConversationSummary,
   DocumentListItem,
@@ -350,8 +351,27 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
   const latestSources = useMemo(() => {
     const latestAssistantMessage = [...messages]
       .reverse()
-      .find((message) => message.role === "assistant" && message.sources && message.sources.length > 0);
-    return latestAssistantMessage?.sources ?? [];
+      .find((message) => message.role === "assistant");
+    if (!latestAssistantMessage) return [];
+    // prefer normalized cited_sources; fall back to legacy sources converted to CitationSource
+    if (latestAssistantMessage.cited_sources?.length) {
+      return latestAssistantMessage.cited_sources;
+    }
+    return (latestAssistantMessage.sources ?? []).map(chatSourceToCitation);
+  }, [messages]);
+
+  const latestResponseMode = useMemo(() => {
+    const latestAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    return latestAssistantMessage?.response_mode ?? "answer_from_context";
+  }, [messages]);
+
+  const latestGuardrailReason = useMemo(() => {
+    const latestAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    return latestAssistantMessage?.guardrail_reason ?? null;
   }, [messages]);
 
   const readinessChecks = useMemo<ChatReadinessCheck[]>(() => {
@@ -510,6 +530,8 @@ export function useWorkspaceChat({ apiClient, userId, workspaceId }: UseWorkspac
     isLoadingDocuments,
     isSending,
     latestSources,
+    latestResponseMode,
+    latestGuardrailReason,
     loadConversations,
     loadDocuments,
     messages,
@@ -625,7 +647,16 @@ function areScopesEqual(left: RetrievalScope, right: RetrievalScope): boolean {
 function assistantMessageFromResponse(
   conversationId: string,
   workspaceId: string,
-  message: { id: string; role: "assistant"; content: string; sources: ChatSource[] },
+  message: {
+    id: string;
+    role: "assistant";
+    content: string;
+    sources: ChatSource[];
+    cited_sources?: CitationSource[];
+    retrieved_sources?: CitationSource[];
+    response_mode?: string;
+    guardrail_reason?: string | null;
+  },
 ): ChatMessage {
   return {
     id: message.id,
@@ -634,21 +665,35 @@ function assistantMessageFromResponse(
     user_id: null,
     role: message.role,
     content: message.content,
-    response_metadata: { sources: message.sources },
+    response_metadata: {
+      sources: message.sources,
+      cited_sources: message.cited_sources ?? [],
+      response_mode: message.response_mode ?? "answer_from_context",
+      guardrail_reason: message.guardrail_reason ?? null,
+    },
     sources: message.sources,
+    cited_sources: message.cited_sources ?? [],
+    response_mode: message.response_mode ?? "answer_from_context",
+    guardrail_reason: message.guardrail_reason ?? null,
     created_at: new Date().toISOString(),
   };
 }
 
 function withExtractedSources(message: ChatMessage): ChatMessage {
-  const rawSources = message.response_metadata?.sources;
-  if (!Array.isArray(rawSources)) {
-    return message;
-  }
+  const metadata = message.response_metadata;
+  if (!metadata) return message;
+
+  const rawSources = metadata.sources;
+  const rawCited = metadata.cited_sources;
+  const responseMode = typeof metadata.response_mode === "string" ? metadata.response_mode : undefined;
+  const guardrailReason = typeof metadata.guardrail_reason === "string" ? metadata.guardrail_reason : null;
 
   return {
     ...message,
-    sources: rawSources.filter(isChatSource),
+    sources: Array.isArray(rawSources) ? rawSources.filter(isChatSource) : message.sources,
+    cited_sources: Array.isArray(rawCited) ? rawCited.filter(isCitationSource) : message.cited_sources,
+    response_mode: responseMode ?? message.response_mode,
+    guardrail_reason: guardrailReason ?? message.guardrail_reason,
   };
 }
 
@@ -658,6 +703,32 @@ function isChatSource(value: unknown): value is ChatSource {
   }
 
   return "document_id" in value && "document_title" in value && "snippet" in value;
+}
+
+function isCitationSource(value: unknown): value is CitationSource {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  return "citation_id" in value && "excerpt" in value && "document_id" in value;
+}
+
+/** Convert legacy ChatSource to CitationSource for unified rendering */
+function chatSourceToCitation(source: ChatSource, index: number): CitationSource {
+  return {
+    citation_id: `legacy-${source.chunk_id ?? source.document_id}-${index}`,
+    chunk_id: source.chunk_id ?? "",
+    chunk_index: index,
+    document_id: source.document_id,
+    document_version_id: source.document_version_id,
+    document_title: source.document_title,
+    section_path: source.section_path ? [source.section_path] : [],
+    excerpt: source.snippet,
+    heading: null,
+    retrieval_score: source.score,
+    rank: index + 1,
+    workspace_id: "",
+    category: source.category,
+  };
 }
 
 function temporaryUserMessage(content: string, workspaceId: string, conversationId: string): ChatMessage {

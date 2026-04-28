@@ -83,6 +83,11 @@ export const pl = {
     title: "Źródła",
     empty: "Brak źródeł dla ostatniej odpowiedzi.",
     untitledSection: "Sekcja bez tytułu",
+    score: "Trafność",
+    responseMode: {
+      outOfScope: "Zapytanie poza zakresem wiedzy",
+      insufficientContext: "Brak wystarczającego kontekstu w dokumentach",
+    },
   },
   scope: {
     ariaLabel: "Zakres wyszukiwania",
