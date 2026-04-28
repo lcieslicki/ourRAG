@@ -1,8 +1,9 @@
 from collections.abc import Callable
 import logging
+import uuid
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import delete, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
@@ -17,6 +18,7 @@ from app.domain.jobs import (
     REINDEX_DOCUMENT_VERSION,
 )
 from app.domain.models import DocumentProcessingJob, DocumentVersion
+from app.domain.models.chunk import DocumentChunk as DocumentChunkRecord
 from app.domain.models.common import utc_now
 from app.domain.parsers.markdown import MarkdownParser
 from app.domain.services.processing_jobs import DocumentProcessingJobService
@@ -284,6 +286,64 @@ class IngestionJobRunner:
 
         self.vector_index.upsert_chunk_vectors(points)
         logger.info("ingestion.stage.index.upserted version_id=%s points=%s", version.id, len(points))
+
+        # Persist chunks to PostgreSQL for lexical (FTS) retrieval
+        chunks = [deserialize_chunk(raw["chunk"]) for raw in raw_embeddings]
+        self._persist_chunks_to_pg(version=version, chunks=chunks)
+
+    def _persist_chunks_to_pg(self, version: DocumentVersion, chunks: list[DocumentChunk]) -> None:
+        """Write chunk text records to document_chunks for FTS / hybrid retrieval."""
+        document = version.document
+
+        # Deactivate chunks from previous versions of this document
+        self.session.execute(
+            update(DocumentChunkRecord)
+            .where(
+                DocumentChunkRecord.document_id == document.id,
+                DocumentChunkRecord.document_version_id != version.id,
+            )
+            .values(is_active=False)
+        )
+
+        # Delete any existing rows for this version (idempotent re-index)
+        self.session.execute(
+            delete(DocumentChunkRecord).where(
+                DocumentChunkRecord.document_version_id == version.id
+            )
+        )
+        self.session.flush()
+
+        now = utc_now()
+        records = [
+            DocumentChunkRecord(
+                id=str(uuid.uuid4()),
+                chunk_id=f"{version.id}:{chunk.chunk_index}",
+                workspace_id=document.workspace_id,
+                document_id=document.id,
+                document_version_id=version.id,
+                document_title=document.title,
+                heading=chunk.heading,
+                section_path_text=" > ".join(chunk.section_path),
+                chunk_text=chunk.text,
+                chunk_index=chunk.chunk_index,
+                language=chunk.language or "pl",
+                category=document.category,
+                is_active=True,
+                chunking_strategy_name=chunk.chunking_strategy_version,
+                chunking_strategy_version=chunk.chunking_strategy_version,
+                chunk_size_config=self.settings.retrieval.chunk_size,
+                chunk_overlap_config=self.settings.retrieval.chunk_overlap,
+                created_at=now,
+            )
+            for chunk in chunks
+        ]
+        self.session.add_all(records)
+        self.session.flush()
+        logger.info(
+            "ingestion.stage.index.pg_chunks_persisted version_id=%s chunk_count=%s",
+            version.id,
+            len(records),
+        )
 
     def _ensure_previous_stages_succeeded(self, job: DocumentProcessingJob) -> None:
         if job.job_type not in INGESTION_JOB_FLOW:
