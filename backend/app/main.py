@@ -7,6 +7,9 @@ from app.api.routes.chat import router as chat_router
 from app.api.routes.chat_ws import router as chat_ws_router
 from app.api.routes.conversations import router as conversations_router
 from app.api.routes.documents import router as documents_router
+from app.api.routes.extraction import router as extraction_router
+from app.api.routes.feedback import router as feedback_router
+from app.api.routes.summarization import router as summarization_router
 from app.api.routes.workspaces import router as workspaces_router
 from app.core.config import get_settings
 from app.core.observability.middleware import CorrelationIdMiddleware
@@ -29,6 +32,9 @@ app.include_router(conversations_router)
 app.include_router(chat_router)
 app.include_router(chat_ws_router)
 app.include_router(documents_router)
+app.include_router(extraction_router)
+app.include_router(feedback_router)
+app.include_router(summarization_router)
 
 
 @app.get("/health")

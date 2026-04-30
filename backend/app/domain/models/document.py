@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.models.common import IdMixin, TimestampMixin
@@ -65,6 +65,8 @@ class DocumentVersion(IdMixin, TimestampMixin, Base):
     embedding_model_version: Mapped[str | None] = mapped_column(String(255), nullable=True)
     chunking_strategy_version: Mapped[str | None] = mapped_column(String(255), nullable=True)
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    inferred_doc_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    inferred_doc_type_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
 
     document = relationship("Document", back_populates="versions")

@@ -63,3 +63,12 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+
+## 5. Agent workflow
+
+- For tasks spanning 3+ independent modules: use parallel subagents (Agent tool, isolation: "worktree")
+- Always run an Explore agent before implementing to map dependencies
+- Always run a Plan agent for multi-step architectural changes
+- After implementation: spawn a verification subagent to run pytest and report failures
+- Never mark a task complete without actual test execution

@@ -17,13 +17,16 @@ The current local MVP uses a lightweight development auth shim:
 
 This is not production authentication. It is sufficient for the local-only app and deterministic testing.
 
-## Suggested endpoint groups
+## Endpoint groups
 
 - auth
 - workspaces
 - conversations
 - chat
 - documents
+- extraction
+- summarization
+- feedback
 - admin
 
 ## Workspace endpoints
@@ -91,24 +94,109 @@ Example request:
     "id": "msg_2",
     "role": "assistant",
     "content": "You should submit vacation leave through the HR system.",
-    "sources": [
-      {
-        "document_id": "doc_1",
-        "document_title": "Employee Handbook",
-        "document_version_id": "ver_2",
-        "section_path": "HR > Vacation Leave",
-        "snippet": "Vacation leave requests must be submitted in the HR system.",
-        "score": 0.92,
-        "category": "HR",
-        "chunk_id": "ver_2:0"
-      }
-    ]
+    "response_mode": "qa",
+    "guardrail_reason": null,
+    "sources": [...],
+    "retrieved_sources": [...],
+    "cited_sources": [...]
   },
   "usage": {}
 }
 ```
 
-`usage` is currently reserved for future timing and token metrics.
+`response_mode` reflects the routing decision: `qa`, `summarization`, `structured_extraction`, `admin_lookup`, or `refuse_out_of_scope`.
+
+`usage` is reserved for future timing and token metrics.
+
+## Extraction endpoints
+
+### POST /api/workspaces/{workspace_id}/extract
+Extract structured data from documents using a predefined schema.
+
+Example request:
+```json
+{
+  "schema_name": "procedure_metadata_v1",
+  "mode": "extract_from_retrieved_context",
+  "query": "Who approves training requests?"
+}
+```
+
+Example response:
+```json
+{
+  "mode": "structured_extraction",
+  "schema_name": "procedure_metadata_v1",
+  "status": "success",
+  "data": {
+    "title": "Training Request Procedure",
+    "owner": "HR",
+    "approval_steps": ["Manager", "HR", "Finance"]
+  },
+  "sources": [...],
+  "validation_errors": null
+}
+```
+
+Predefined schemas: `procedure_metadata_v1`, `approval_path_v1`, `document_brief_v1`, `deadline_and_required_documents_v1`.
+
+Status values: `success`, `validation_failure`, `no_context`, `timeout`.
+
+## Summarization endpoints
+
+### POST /api/workspaces/{workspace_id}/summarize
+Generate a summary or briefing from retrieved or selected document context.
+
+Example request:
+```json
+{
+  "format": "bullet_brief",
+  "scope": {
+    "document_id": "doc_123"
+  },
+  "query": "Summarize the vacation policy"
+}
+```
+
+Example response:
+```json
+{
+  "mode": "summarization",
+  "format": "bullet_brief",
+  "scope": {"document_id": "doc_123"},
+  "summary": "- 26 days annual leave\n- Approval required from manager\n- Requests via HR system",
+  "sources": [...]
+}
+```
+
+Supported formats: `plain_summary`, `bullet_brief`, `checklist`, `key_points_and_risks`.
+
+## Feedback endpoints
+
+### POST /api/workspaces/{workspace_id}/feedback
+Submit feedback for an assistant response.
+
+Example request:
+```json
+{
+  "conversation_id": "conv_321",
+  "message_id": "msg_789",
+  "helpfulness": "helpful",
+  "source_quality": "source_useful",
+  "answer_completeness": "answer_complete",
+  "comment": "Missing the exception for interns."
+}
+```
+
+Repeated feedback on the same `message_id` updates the existing record (upsert).
+
+### GET /api/workspaces/{workspace_id}/feedback
+List feedback records for a workspace (admin use).
+
+Query params: `limit`, `offset`.
+
+### GET /api/workspaces/{workspace_id}/feedback/summary
+Aggregated feedback statistics for a workspace.
 
 ### GET /api/chat/ws/{conversation_id}
 WebSocket stream for local chat processing events.

@@ -10,27 +10,37 @@ The retrieval layer must:
 - return source-rich context for final answer generation,
 - avoid mixing inactive or invalid document versions into normal answers.
 
-## MVP retrieval model
+## Retrieval model
 
 ### Search type
-MVP uses semantic vector search with Qdrant.
+Default: semantic vector search with Qdrant.
 
-### Planned future enhancements
-Explicitly planned, but not part of MVP:
+Optional modes (configured via env):
+- **hybrid** — combines semantic vector search + BM25 lexical search with configurable weights (`RETRIEVAL_MODE=hybrid`)
+- **reranking** — a cross-encoder reranker applied after retrieval to improve ranking precision (`RERANKING_ENABLED=true`)
+- **query rewriting** — one or more alternative queries generated before retrieval (`QUERY_REWRITE_MODE`)
 
-- hybrid search,
-- reranking,
-- query expansion.
+### Query rewriting
+Controlled by `QUERY_REWRITE_MODE`:
+
+- `disabled` — original query is used as-is (default)
+- `single_rewrite` — one alternative phrasing is generated
+- `multi_query` — up to `QUERY_REWRITE_MAX_QUERIES` alternatives generated; retrieval runs per query and results are merged and deduplicated by `chunk_id`
+
+Rewrites are generated using the local LLM. Contextualization (E2) may resolve pronouns or vague references before rewriting. On timeout or error, the system falls back to the original query.
 
 ## Retrieval flow
 
 1. Validate user's workspace access.
 2. Resolve active workspace.
 3. Load optional explicit scope filters.
-4. Generate embedding for user query.
-5. Query Qdrant with mandatory filters.
-6. Deduplicate and rank top-k chunks.
-7. Pass results to prompt builder.
+4. *(optional)* Contextualize query using conversation memory (E2).
+5. *(optional)* Generate rewritten queries via `QueryRewriteService` (E1).
+6. Embed query (or each rewritten query).
+7. Query Qdrant with mandatory workspace and active-version filters.
+8. *(multi-query)* Merge and deduplicate candidates across all queries.
+9. *(optional)* Rerank candidates with cross-encoder.
+10. Pass top-k chunks to prompt builder.
 
 ## Required filters
 
@@ -110,21 +120,19 @@ When retrieval finds no usable context:
 - response should not invent facts,
 - response may suggest narrowing or broadening scope if appropriate.
 
-## Planned retrieval evolution
+## Routing and mode selection
 
-### Hybrid search
-Future version may combine:
+The backend router (`RequestRouter`) classifies each incoming chat turn before retrieval runs:
 
-- semantic vector search,
-- lexical keyword search,
-- metadata filters.
+| Mode | Trigger | Behavior |
+|------|---------|----------|
+| `qa` | default | standard retrieval + generation |
+| `summarization` | summary intent detected | routes to `SummarizationService` |
+| `structured_extraction` | extraction intent detected | routes to `ExtractionService` |
+| `admin_lookup` | admin query detected | metadata lookup without LLM |
+| `refuse_out_of_scope` | out-of-scope detected | template refusal, no LLM call |
 
-### Reranking
-Future version may:
-
-- retrieve a broader candidate set,
-- rerank with a dedicated reranker model,
-- keep only strongest contexts for prompt assembly.
+Routing decisions are advisory when confidence is below `ROUTING_MIN_CONFIDENCE` — system falls back to `qa`.
 
 ## Evaluation guidance
 

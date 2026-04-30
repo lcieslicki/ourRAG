@@ -12,6 +12,7 @@ from app.api.dependencies.retrieval import get_query_embedding_service, get_retr
 from app.api.routes.conversations import message_response
 from app.api.schemas.conversations import ChatAssistantMessageResponse, ChatRequest, ChatResponse, CitationResponse
 from app.core.config import get_settings
+from app.core.config.routing_config import RoutingConfig
 from app.domain.citations import CitationService
 from app.domain.guardrails.service import GuardrailService
 from app.domain.reranking.service import LocalCrossEncoderReranker, RerankingService, SimpleScoreReranker
@@ -19,10 +20,17 @@ from app.domain.embeddings import EmbeddingService
 from app.domain.errors import ConversationAccessDenied, DocumentAccessDenied, WorkspaceAccessDenied
 from app.domain.llm import GenerationRequest, LlmGateway
 from app.domain.prompting import PromptBuilder, PromptBuildInput
+from app.domain.routing.models import RequestContext, ResponseMode
+from app.domain.routing.orchestrator import CapabilityOrchestrator
+from app.domain.routing.router import RequestRouter
 from app.domain.services.conversations import ConversationService
 from app.domain.services.hybrid_retrieval import HybridRetrievalService
 from app.domain.services.memory import ConversationMemoryService
 from app.domain.services.retrieval import RetrievalScope, RetrievalService, RetrievedChunk, VectorIndexService
+from app.domain.query_rewriting.service import QueryRewriteService
+from app.domain.query_rewriting.models import QueryRewriteRequest, QueryRewriteMode
+from app.domain.query_rewriting.multi_query_retrieval import MultiQueryRetrievalService
+from app.domain.memory_context.contextualizer import ConversationContextualizer
 from app.infrastructure.llm import OllamaGatewayError
 from app.infrastructure.realtime import ChatProcessingEvent, chat_log_manager
 
@@ -103,6 +111,160 @@ async def send_chat_message(
             {"conversation_id": conversation.id, "workspace_id": conversation.workspace_id},
         )
 
+        # ── Routing decision (E7) ────────────────────────────────────────
+        routing_config = RoutingConfig()
+        router = RequestRouter(classification_service=None, settings=routing_config)
+        routing_context = RequestContext(
+            query=payload.message,
+            workspace_id=payload.workspace_id,
+            conversation_id=payload.conversation_id,
+        )
+        routing_decision = router.route(routing_context)
+        await emit(
+            "routing",
+            "decision_made",
+            "completed",
+            {
+                "selected_mode": routing_decision.selected_mode.value,
+                "router_strategy": routing_decision.router_strategy,
+                "confidence": routing_decision.confidence,
+            },
+        )
+
+        # ── Orchestration for refuse_out_of_scope mode (E7) ──────────────────────────
+        # Short-circuit for refuse_out_of_scope without LLM call
+        if routing_decision.selected_mode == ResponseMode.refuse_out_of_scope:
+            orchestrator = CapabilityOrchestrator(
+                retrieval_service=None,
+                llm_gateway=None,
+                memory_service=None,
+                extraction_service=None,
+                summarization_service=None,
+                classification_service=None,
+            )
+            try:
+                response_envelope = await orchestrator.execute(routing_decision, routing_context)
+                await emit(
+                    "orchestration",
+                    "capability_executed",
+                    "completed",
+                    {
+                        "response_mode": response_envelope.selected_mode.value,
+                        "router_strategy": response_envelope.router_strategy,
+                    },
+                )
+
+                # Create user message for the refusal response
+                user_message = conversation_service.append_user_message(
+                    user_id=current_user.id,
+                    workspace_id=payload.workspace_id,
+                    conversation_id=payload.conversation_id,
+                    content=payload.message,
+                )
+                active_user_message_id = user_message.id
+
+                assistant_message = conversation_service.append_assistant_message(
+                    user_id=current_user.id,
+                    workspace_id=payload.workspace_id,
+                    conversation_id=payload.conversation_id,
+                    content=response_envelope.content.get("message", "Request could not be processed."),
+                    response_metadata={
+                        "response_mode": response_envelope.selected_mode.value,
+                        "router_reason": response_envelope.router_reason,
+                        "router_strategy": response_envelope.router_strategy,
+                        "sources": response_envelope.sources,
+                    },
+                )
+                db.commit()
+                await emit("request", "completed", "completed", {"assistant_message_id": assistant_message.id})
+
+                return ChatResponse(
+                    conversation_id=payload.conversation_id,
+                    user_message=message_response(user_message),
+                    assistant_message=ChatAssistantMessageResponse(
+                        id=assistant_message.id,
+                        role="assistant",
+                        content=response_envelope.content.get("message", "Request could not be processed."),
+                        sources=response_envelope.sources,
+                        retrieved_sources=response_envelope.sources,
+                        cited_sources=[],
+                        response_mode=response_envelope.selected_mode.value,
+                        guardrail_reason=response_envelope.router_reason,
+                    ),
+                    usage={},
+                )
+            except Exception as orch_exc:
+                logger.exception(f"Orchestration failed for mode {routing_decision.selected_mode}: {orch_exc}")
+                await emit("orchestration", "failed", "failed", {"error": str(orch_exc)})
+
+        # ── Query Rewriting (E1) ────────────────────────────────────────
+        # Build recent turns and summary early for query rewriting
+        query_rewrite_cfg = settings.query_rewrite
+        rewrite_plan = None
+
+        if query_rewrite_cfg.query_rewrite_mode != "disabled":
+            try:
+                await emit("query_rewriting", "started", "started", {"mode": query_rewrite_cfg.query_rewrite_mode})
+
+                # Extract recent messages and summary for query rewriting context
+                recent_turns = []
+                summary_text = None
+
+                # Get recent messages from conversation
+                recent_messages = conversation.messages
+                if recent_messages:
+                    # Filter and sort messages
+                    user_assistant_messages = [
+                        m for m in sorted(recent_messages, key=lambda x: x.created_at)
+                        if m.role in {"user", "assistant"}
+                    ]
+                    # Get last N recent messages (excluding current one which hasn't been saved yet)
+                    limit = min(settings.advanced_memory.memory_retrieval_recent_message_limit + 2, len(user_assistant_messages))
+                    for msg in user_assistant_messages[-limit:]:
+                        recent_turns.append({
+                            "role": msg.role,
+                            "content": msg.content_text,
+                        })
+
+                # Get summary if available
+                if conversation.summary:
+                    summary_text = conversation.summary.summary_text
+
+                # Create contextualizer if memory contextualization is enabled
+                contextualizer = None
+                if settings.advanced_memory.memory_contextualization_enabled:
+                    contextualizer = ConversationContextualizer(llm_gateway, settings.advanced_memory)
+
+                # Execute query rewriting
+                rewrite_service = QueryRewriteService(
+                    llm=llm_gateway,
+                    contextualizer=contextualizer,
+                    settings=query_rewrite_cfg,
+                )
+                rewrite_plan = await rewrite_service.rewrite(
+                    QueryRewriteRequest(
+                        query=payload.message,
+                        workspace_id=payload.workspace_id,
+                        recent_turns=recent_turns,
+                        summary=summary_text,
+                    )
+                )
+
+                await emit(
+                    "query_rewriting",
+                    "completed",
+                    "completed",
+                    {
+                        "mode": rewrite_plan.mode.value,
+                        "was_contextualized": rewrite_plan.was_contextualized,
+                        "rewrite_count": len(rewrite_plan.rewritten_queries),
+                        "total_queries": len(rewrite_plan.all_queries),
+                    },
+                )
+            except Exception as qr_exc:
+                logger.warning(f"Query rewriting failed, falling back to original query: {qr_exc}")
+                await emit("query_rewriting", "fallback", "failed", {"error": str(qr_exc)})
+
         retrieval_scope = parse_retrieval_scope(payload.scope if payload.scope is not None else conversation.selected_scope_json)
         await emit(
             "request",
@@ -120,7 +282,75 @@ async def send_chat_message(
             "started",
             {"query": payload.message, "mode": settings.hybrid_retrieval.mode},
         )
-        if settings.hybrid_retrieval.mode == "hybrid":
+
+        # Use multi-query retrieval if query rewriting is enabled and multi_query mode is active
+        use_multi_query = (
+            rewrite_plan is not None
+            and rewrite_plan.mode == QueryRewriteMode.MULTI_QUERY
+        )
+
+        if use_multi_query:
+            # Multi-query retrieval using rewrite plan
+            base_retrieval_service = RetrievalService(
+                session=db,
+                embedding_service=embedding_service,
+                vector_index=vector_index,
+                settings=settings,
+                debug_hook=debug_hook,
+            )
+            multi_retrieval_service = MultiQueryRetrievalService(
+                retrieval_service=base_retrieval_service,
+                settings=settings.query_rewrite,
+            )
+            multi_result = multi_retrieval_service.retrieve(
+                rewrite_plan=rewrite_plan,
+                user_id=current_user.id,
+                workspace_id=payload.workspace_id,
+                scope=retrieval_scope,
+            )
+
+            # Convert dict result back to RetrievalResponse
+            from app.domain.services.retrieval import RetrievalResponse as _RetrievalResponse
+
+            def dict_to_chunk(chunk_dict):
+                """Convert dict from multi-query retrieval back to RetrievedChunk."""
+                if isinstance(chunk_dict, RetrievedChunk):
+                    return chunk_dict
+                # Ensure section_path is tuple
+                section_path = chunk_dict.get("section_path", ())
+                if isinstance(section_path, str):
+                    section_path = (section_path,) if section_path else ()
+                elif not isinstance(section_path, tuple):
+                    section_path = tuple(section_path) if section_path else ()
+
+                return RetrievedChunk(
+                    chunk_id=chunk_dict.get("chunk_id", ""),
+                    chunk_text=chunk_dict.get("chunk_text", ""),
+                    document_id=chunk_dict.get("document_id", ""),
+                    document_version_id=chunk_dict.get("document_version_id", ""),
+                    document_title=chunk_dict.get("document_title", ""),
+                    section_path=section_path,
+                    score=chunk_dict.get("score", 0.0),
+                    category=chunk_dict.get("category"),
+                    language=chunk_dict.get("language"),
+                    is_active=chunk_dict.get("is_active", True),
+                    payload=chunk_dict.get("payload", {}),
+                )
+
+            retrieval = _RetrievalResponse(
+                workspace_id=payload.workspace_id,
+                query=payload.message,
+                chunks=tuple(
+                    dict_to_chunk(chunk)
+                    for chunk in multi_result.get("chunks", [])
+                ),
+            )
+        elif settings.hybrid_retrieval.mode == "hybrid":
+            # Standard hybrid retrieval
+            query_to_use = (
+                rewrite_plan.all_queries[0] if rewrite_plan
+                else payload.message
+            )
             retrieval = HybridRetrievalService(
                 session=db,
                 embedding_service=embedding_service,
@@ -130,10 +360,15 @@ async def send_chat_message(
             ).retrieve(
                 user_id=current_user.id,
                 workspace_id=payload.workspace_id,
-                query=payload.message,
+                query=query_to_use,
                 scope=retrieval_scope,
             )
         else:
+            # Standard vector-only retrieval
+            query_to_use = (
+                rewrite_plan.all_queries[0] if rewrite_plan
+                else payload.message
+            )
             retrieval = RetrievalService(
                 session=db,
                 embedding_service=embedding_service,
@@ -143,7 +378,7 @@ async def send_chat_message(
             ).retrieve(
                 user_id=current_user.id,
                 workspace_id=payload.workspace_id,
-                query=payload.message,
+                query=query_to_use,
                 scope=retrieval_scope,
             )
         user_message = conversation_service.append_user_message(

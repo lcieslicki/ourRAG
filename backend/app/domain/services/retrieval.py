@@ -217,3 +217,82 @@ class RetrievalService:
     def _emit(self, event: str, payload: dict[str, Any]) -> None:
         if self.debug_hook:
             self.debug_hook(event, payload)
+
+    def retrieve_with_rewrite_plan(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        query: str,
+        rewrite_plan: "RewritePlan | None" = None,
+        scope: RetrievalScope | None = None,
+        top_k: int | None = None,
+    ) -> RetrievalResponse:
+        """Retrieve using a rewrite plan if provided, otherwise use original query.
+
+        This method provides optional support for query rewriting without breaking
+        existing single-query retrieval. If rewrite_plan is None or mode is disabled,
+        falls back to standard retrieve() behavior.
+
+        Args:
+            user_id: User ID for access control.
+            workspace_id: Workspace ID to scope retrieval.
+            query: Original query (fallback if no rewrite_plan).
+            rewrite_plan: Optional RewritePlan with rewritten queries.
+            scope: Optional retrieval scope (category, language, documents).
+            top_k: Optional override for number of results.
+
+        Returns:
+            RetrievalResponse with chunks for the given queries.
+        """
+        # Import here to avoid circular dependency
+        from app.domain.query_rewriting.models import QueryRewriteMode
+
+        # If no rewrite plan or disabled mode, use standard retrieve
+        if rewrite_plan is None or rewrite_plan.mode == QueryRewriteMode.DISABLED:
+            return self.retrieve(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                query=query,
+                scope=scope,
+                top_k=top_k,
+            )
+
+        # Multi-query retrieval: use all queries from the plan
+        all_chunks = []
+        seen_chunk_ids = set()
+
+        for query_text in rewrite_plan.all_queries:
+            try:
+                response = self.retrieve(
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    query=query_text,
+                    scope=scope,
+                    top_k=top_k,
+                )
+
+                # Merge results, keeping highest score per chunk_id
+                for chunk in response.chunks:
+                    if chunk.chunk_id not in seen_chunk_ids:
+                        all_chunks.append(chunk)
+                        seen_chunk_ids.add(chunk.chunk_id)
+                    else:
+                        # Replace if this score is higher
+                        for i, existing in enumerate(all_chunks):
+                            if existing.chunk_id == chunk.chunk_id and chunk.score > existing.score:
+                                all_chunks[i] = chunk
+                                break
+
+            except Exception:
+                # Continue with next query on error
+                continue
+
+        # Sort by score descending
+        all_chunks.sort(key=lambda c: c.score, reverse=True)
+
+        return RetrievalResponse(
+            workspace_id=workspace_id,
+            query=query,
+            chunks=tuple(all_chunks[: self.settings.retrieval.max_context_chunks]),
+        )

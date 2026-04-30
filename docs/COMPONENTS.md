@@ -64,6 +64,26 @@ Responsibilities:
 - normalize text,
 - preserve useful structure such as headings and lists.
 
+## PdfParser
+Responsibilities:
+
+- extract text from PDF pages,
+- detect headings heuristically (ALL CAPS, numbered),
+- preserve page numbers in block metadata,
+- return `ParseFailure` for encrypted, corrupt, or empty PDFs.
+
+## DocxParser
+Responsibilities:
+
+- extract text and headings from `.docx` via `python-docx`,
+- return `ParseFailure` for corrupt or unreadable files.
+
+## PlainTextParser
+Responsibilities:
+
+- parse `.txt` into paragraph blocks,
+- handle encoding gracefully.
+
 ## ChunkingService
 Responsibilities:
 
@@ -126,6 +146,76 @@ Responsibilities:
 - fetch recent messages,
 - maintain rolling summary,
 - produce memory package for prompt builder.
+
+## ConversationContextualizer (E2)
+Responsibilities:
+
+- transform follow-up questions into standalone queries,
+- resolve pronouns and vague references using recent turns and summary,
+- produce `retrieval_memory` and `generation_memory` as separate packages,
+- fall back to original message on timeout or error.
+
+## QueryRewriteService (E1)
+Responsibilities:
+
+- generate alternative query phrasings for broader retrieval recall,
+- support `disabled`, `single_rewrite`, and `multi_query` modes,
+- use conversation context for better rewrites,
+- fall back to original query on failure.
+
+## MultiQueryRetrievalService (E1)
+Responsibilities:
+
+- run retrieval for each rewritten query,
+- merge and deduplicate candidate chunks by `chunk_id`,
+- preserve deterministic ordering.
+
+## ClassificationService (E5)
+Responsibilities:
+
+- classify document type at ingestion time (`procedure`, `policy`, `instruction`, `faq`, `form`, `other`),
+- classify query intent for routing (`qa`, `summary`, `extraction`, `admin_lookup`, `other`),
+- expose confidence score with each result,
+- never block pipeline — failures are advisory.
+
+## RequestRouter (E7)
+Responsibilities:
+
+- select the appropriate capability mode for each chat turn,
+- use query classification and conversation context as signals,
+- fall back to `qa` when confidence is below threshold,
+- remain the backend's authoritative routing decision.
+
+## CapabilityOrchestrator (E7)
+Responsibilities:
+
+- execute the selected capability based on routing decision,
+- dispatch to QA, summarization, extraction, admin lookup, or refusal handlers,
+- short-circuit LLM call for `refuse_out_of_scope` mode.
+
+## ExtractionService (E3)
+Responsibilities:
+
+- extract structured JSON data from document context,
+- validate output against a predefined schema,
+- return typed failure envelope when validation fails,
+- support schemas: `procedure_metadata_v1`, `approval_path_v1`, `document_brief_v1`, `deadline_and_required_documents_v1`.
+
+## SummarizationService (E4)
+Responsibilities:
+
+- generate document or section summaries in configurable formats,
+- support `plain_summary`, `bullet_brief`, `checklist`, `key_points_and_risks`,
+- orchestrate map/reduce for long documents (> `SUMMARIZATION_MAX_SOURCE_CHUNKS` chunks),
+- include source attribution in every summary response.
+
+## FeedbackService (E8)
+Responsibilities:
+
+- persist structured user feedback linked to `workspace_id`, `conversation_id`, `message_id`,
+- support helpfulness, source quality, and answer completeness ratings with optional comment,
+- upsert on repeated feedback for the same message,
+- expose aggregated feedback for admin analysis.
 
 ## CitationService
 Responsibilities:

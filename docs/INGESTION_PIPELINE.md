@@ -2,15 +2,16 @@
 
 ## Scope
 
-MVP supports only Markdown (`.md`) files as document input.
+The pipeline supports the following document input types:
 
-Future planned input types:
+- `.md` — Markdown (baseline)
+- `.txt` — plain text
+- `.pdf` — PDF (text-based; encrypted or corrupted PDFs are rejected with a typed failure)
+- `.docx` — Word documents
 
-- PDF,
-- TXT,
-- DOCX.
+Additional types can be enabled via `ParserConfig`. Spreadsheet support (`.xlsx`) and OCR are available as feature-flagged extensions.
 
-The architecture must remain parser-pluggable from day one.
+The parser layer is pluggable from the start — all parsers share a stable `ParsedDocument` contract consumed by downstream chunking.
 
 ## Pipeline stages
 
@@ -28,14 +29,27 @@ Backend actions:
 The standard document upload endpoint enqueues jobs. Local admin upload and folder indexing may also trigger the ingestion runner through backend background tasks.
 
 ### 2. Parse
-The ingestion runner selects parser by file type.
+The ingestion runner selects parser by file type via `ParserRegistry`.
 
-For MVP:
-- `MarkdownParser`
+Available parsers:
+- `MarkdownParser` — `.md`, heading-aware
+- `PlainTextParser` — `.txt`, paragraph-based
+- `PdfParser` — `.pdf`, page-by-page extraction with heading heuristics, preserves page numbers
+- `DocxParser` — `.docx`, heading and table extraction via `python-docx`
+
+If the parser returns a `ParseFailure` (encrypted, corrupt, empty), the document version is marked as `failed` with a typed reason. No garbage is indexed.
 
 Parser output:
-- normalized text,
-- structural hints such as headings.
+- `normalized_text` — merged plain text
+- `blocks` — structured list of headings and paragraphs with section paths
+- `parser_name` and `parser_version` — for auditability
+
+### 2b. Classify (optional)
+If `CLASSIFICATION_ENABLED=true`, after parsing the ingestion runner classifies the document:
+
+- `RuleBasedDocumentClassifier` assigns a document type: `procedure`, `policy`, `instruction`, `faq`, `form`, or `other`
+- result stored in `document_version.inferred_doc_type` and `inferred_doc_type_confidence`
+- classification never blocks ingestion — failures are logged and skipped
 
 ### 3. Normalize
 Normalize parsed text:
@@ -137,19 +151,20 @@ Examples:
 - repeated failed jobs should not corrupt document status,
 - cleanup should tolerate partially indexed versions.
 
+## Parse failure handling
+
+If a document cannot be parsed:
+
+- `document_version.processing_status` is set to `failed`
+- `ParseFailure.reason` is one of: `encrypted`, `corrupt`, `empty`, `unsupported`
+- downstream stages (chunk, embed, index) are not triggered
+- no partial or garbage content is indexed
+
 ## Future extensions
 
-The pipeline should reserve interfaces for future parsers:
+Possible future enhancements:
 
-- `PdfParser`
-- `TxtParser`
-- `DocxParser`
-
-Future enhancements may include:
-
-- OCR fallback for PDFs when absolutely needed,
-- table extraction,
-- attachment metadata extraction,
-- language detection,
-- content classification,
-- checksum-based duplicate detection.
+- OCR adapter for scanned PDFs (behind `PARSER_OCR_ENABLED` flag)
+- spreadsheet tabular extraction (`SpreadsheetParser`, behind `PARSER_SPREADSHEET_ENABLED`)
+- language detection at parse time
+- checksum-based duplicate detection

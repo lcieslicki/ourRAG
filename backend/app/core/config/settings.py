@@ -6,6 +6,15 @@ from typing import Annotated, Literal
 from pydantic import AnyHttpUrl, BaseModel, Field, PositiveInt, StringConstraints, TypeAdapter, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.config.extraction_config import ExtractionConfig
+from app.core.config.feedback_config import FeedbackConfig
+from app.core.config.parser_config import ParserConfig
+from app.core.config.query_rewrite_config import QueryRewriteConfig
+from app.core.config.advanced_memory_config import AdvancedMemoryConfig
+from app.core.config.routing_config import RoutingConfig
+from app.core.config.summarization_config import SummarizationConfig
+from app.core.config.classification_config import ClassificationConfig
+
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
@@ -145,6 +154,14 @@ class Settings(BaseModel):
     hybrid_retrieval: HybridRetrievalConfig
     reranking: RerankingConfig
     observability: ObservabilityConfig
+    parser: ParserConfig
+    classification: ClassificationConfig
+    query_rewrite: QueryRewriteConfig
+    advanced_memory: AdvancedMemoryConfig
+    routing: RoutingConfig
+    feedback: FeedbackConfig
+    extraction: ExtractionConfig
+    summarization: SummarizationConfig
     data_root: Path
 
 
@@ -233,6 +250,58 @@ class EnvSettings(BaseSettings):
     observability_retrieval_trace_enabled: bool = Field(default=True)
     observability_ingestion_trace_enabled: bool = Field(default=True)
     observability_include_debug_fields: bool = Field(default=False)
+
+    # Parser
+    parser_ingestion_allowed_file_types: str = Field(default=".md,.txt,.pdf,.docx")
+    parser_pdf_enabled: bool = Field(default=True)
+    parser_docx_enabled: bool = Field(default=True)
+    parser_spreadsheet_enabled: bool = Field(default=False)
+    parser_ocr_enabled: bool = Field(default=False)
+
+    # Classification
+    classification_enabled: bool = Field(default=False)
+    classification_document_enabled: bool = Field(default=False)
+    classification_query_enabled: bool = Field(default=False)
+    classification_min_confidence: float = Field(default=0.65)
+    classification_provider: str = Field(default="rule_based")
+
+    # Query Rewriting (E1)
+    query_rewrite_mode: str = Field(default="disabled")
+    query_rewrite_max_queries: PositiveInt = Field(default=3)
+    query_rewrite_include_summary: bool = Field(default=True)
+    query_rewrite_include_recent_messages: bool = Field(default=True)
+    query_rewrite_model_provider: str = Field(default="ollama")
+    query_rewrite_timeout_ms: PositiveInt = Field(default=3000)
+
+    # Advanced Memory (E2)
+    memory_contextualization_enabled: bool = Field(default=True)
+    memory_retrieval_recent_message_limit: PositiveInt = Field(default=4)
+    memory_generation_recent_message_limit: PositiveInt = Field(default=6)
+    memory_summary_max_chars: PositiveInt = Field(default=2000)
+    memory_contextualization_timeout_ms: PositiveInt = Field(default=2500)
+
+    # Extraction (E3)
+    extraction_enabled: bool = Field(default=True)
+    extraction_max_schema_fields: PositiveInt = Field(default=30)
+    extraction_validation_strict: bool = Field(default=True)
+    extraction_timeout_ms: PositiveInt = Field(default=5000)
+
+    # Summarization (E4)
+    summarization_enabled: bool = Field(default=True)
+    summarization_max_source_chunks: PositiveInt = Field(default=12)
+    summarization_long_doc_map_reduce_enabled: bool = Field(default=True)
+    summarization_timeout_ms: PositiveInt = Field(default=6000)
+
+    # Routing
+    routing_enabled: bool = Field(default=True)
+    routing_default_mode: str = Field(default="qa")
+    routing_allow_ui_mode_hint: bool = Field(default=True)
+    routing_min_confidence: float = Field(default=0.7)
+
+    # Feedback
+    feedback_enabled: bool = Field(default=True)
+    feedback_ui_enabled: bool = Field(default=True)
+    feedback_comment_max_chars: PositiveInt = Field(default=1000)
 
     data_root: Path | None = Field(default=None)
 
@@ -362,6 +431,58 @@ class EnvSettings(BaseSettings):
                 retrieval_trace_enabled=self.observability_retrieval_trace_enabled,
                 ingestion_trace_enabled=self.observability_ingestion_trace_enabled,
                 include_debug_fields=self.observability_include_debug_fields,
+            ),
+            parser=ParserConfig(
+                ingestion_allowed_file_types=self.parser_ingestion_allowed_file_types.split(","),
+                parser_pdf_enabled=self.parser_pdf_enabled,
+                parser_docx_enabled=self.parser_docx_enabled,
+                parser_spreadsheet_enabled=self.parser_spreadsheet_enabled,
+                parser_ocr_enabled=self.parser_ocr_enabled,
+            ),
+            classification=ClassificationConfig(
+                enabled=self.classification_enabled,
+                document_enabled=self.classification_document_enabled,
+                query_enabled=self.classification_query_enabled,
+                min_confidence=self.classification_min_confidence,
+                provider=self.classification_provider,
+            ),
+            query_rewrite=QueryRewriteConfig(
+                query_rewrite_mode=self.query_rewrite_mode,
+                query_rewrite_max_queries=self.query_rewrite_max_queries,
+                query_rewrite_include_summary=self.query_rewrite_include_summary,
+                query_rewrite_include_recent_messages=self.query_rewrite_include_recent_messages,
+                query_rewrite_model_provider=self.query_rewrite_model_provider,
+                query_rewrite_timeout_ms=self.query_rewrite_timeout_ms,
+            ),
+            advanced_memory=AdvancedMemoryConfig(
+                memory_contextualization_enabled=self.memory_contextualization_enabled,
+                memory_retrieval_recent_message_limit=self.memory_retrieval_recent_message_limit,
+                memory_generation_recent_message_limit=self.memory_generation_recent_message_limit,
+                memory_summary_max_chars=self.memory_summary_max_chars,
+                memory_contextualization_timeout_ms=self.memory_contextualization_timeout_ms,
+            ),
+            extraction=ExtractionConfig(
+                extraction_enabled=self.extraction_enabled,
+                extraction_max_schema_fields=self.extraction_max_schema_fields,
+                extraction_validation_strict=self.extraction_validation_strict,
+                extraction_timeout_ms=self.extraction_timeout_ms,
+            ),
+            summarization=SummarizationConfig(
+                enabled=self.summarization_enabled,
+                max_source_chunks=self.summarization_max_source_chunks,
+                long_doc_map_reduce_enabled=self.summarization_long_doc_map_reduce_enabled,
+                timeout_ms=self.summarization_timeout_ms,
+            ),
+            routing=RoutingConfig(
+                routing_enabled=self.routing_enabled,
+                routing_default_mode=self.routing_default_mode,
+                routing_allow_ui_mode_hint=self.routing_allow_ui_mode_hint,
+                routing_min_confidence=self.routing_min_confidence,
+            ),
+            feedback=FeedbackConfig(
+                enabled=self.feedback_enabled,
+                ui_enabled=self.feedback_ui_enabled,
+                comment_max_chars=self.feedback_comment_max_chars,
             ),
             data_root=self.data_root or find_env_root() / "data",
         )

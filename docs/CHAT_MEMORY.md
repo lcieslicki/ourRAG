@@ -13,21 +13,33 @@ The system must allow users to:
 
 ## Memory model
 
-Use a two-layer memory strategy.
+Three-layer memory strategy.
 
 ### 1. Recent messages
-Keep a rolling window of the most recent turns.
+Rolling window of the most recent turns (configurable limit).
 
 Purpose:
 - preserve short-term dialogue continuity,
 - support follow-up references such as "and what about that case?".
 
 ### 2. Conversation summary
-Maintain a compact rolling summary of older conversation context.
+Compact rolling summary of older context, refreshed every N turns.
 
 Purpose:
 - preserve relevant context without endlessly growing prompt size,
 - reduce token pressure for local models.
+
+### 3. Contextualization (Advanced Memory — E2)
+Before retrieval, the system may transform the current user message into a standalone, context-resolved question using `ConversationContextualizer`.
+
+- resolves pronouns ("it", "that", "there") against recent turns and summary
+- produces a `ContextualizedTurn` with the resolved query
+- controlled by `MEMORY_CONTEXTUALIZATION_ENABLED`
+- on timeout or error falls back to original message
+
+Memory is split into two separate packages:
+- `retrieval_memory` — used to resolve search intent (recent turns + summary, tighter limit)
+- `generation_memory` — used to shape the answer naturally (wider window)
 
 ## Why not include the full conversation every time
 

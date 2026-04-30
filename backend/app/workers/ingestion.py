@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.domain.chunking.markdown import ChunkingConfig, DocumentChunk, MarkdownChunkingService
+from app.domain.classification.rule_based import RuleBasedDocumentClassifier, RuleBasedQueryClassifier
+from app.domain.classification.service import ClassificationService
 from app.domain.embeddings import EmbeddingMetadata, EmbeddingService
 from app.domain.jobs import (
     CHUNK_DOCUMENT,
@@ -20,6 +22,8 @@ from app.domain.jobs import (
 from app.domain.models import DocumentProcessingJob, DocumentVersion
 from app.domain.models.chunk import DocumentChunk as DocumentChunkRecord
 from app.domain.models.common import utc_now
+from app.domain.parsers.failures import ParseFailure
+from app.domain.parsers.registry import create_default_registry
 from app.domain.parsers.markdown import MarkdownParser
 from app.domain.services.processing_jobs import DocumentProcessingJobService
 from app.infrastructure.embeddings import OllamaEmbeddingService
@@ -48,10 +52,20 @@ class IngestionJobRunner:
         self.embedding_service = embedding_service
         self.vector_index = vector_index
         self.settings = settings or get_settings()
+        self.parser_registry = create_default_registry(self.settings.parser)
         self.markdown_parser = MarkdownParser()
+        self.classification_service = self._init_classification_service()
         self.handlers = self._default_handlers()
         if handlers:
             self.handlers.update(handlers)
+
+    def _init_classification_service(self) -> ClassificationService:
+        """Initialize classification service if enabled in settings."""
+        return ClassificationService(
+            doc_classifier=RuleBasedDocumentClassifier(),
+            query_classifier=RuleBasedQueryClassifier(),
+            config=self.settings.classification,
+        )
 
     @classmethod
     def from_settings(cls, session: Session, settings: Settings | None = None) -> "IngestionJobRunner":
@@ -127,7 +141,30 @@ class IngestionJobRunner:
             return
 
         document = version.document
-        parsed = self.markdown_parser.parse(self.storage.read_bytes(version.storage_path))
+
+        # Get parser from registry based on file extension
+        parser = self.parser_registry.get_parser(version.file_name)
+        if parser is None:
+            # Fallback to markdown parser for unsupported formats
+            logger.warning("ingestion.stage.parse.unsupported_format job_id=%s version_id=%s filename=%s, falling back to markdown",
+                         job.id, version.id, version.file_name)
+            parser = self.markdown_parser
+
+        parsed = parser.parse(self.storage.read_bytes(version.storage_path))
+
+        # Handle ParseFailure gracefully
+        if isinstance(parsed, ParseFailure):
+            version.processing_status = "failed"
+            self.session.flush()
+            logger.error(
+                "ingestion.stage.parse.failure job_id=%s version_id=%s reason=%s error=%s",
+                job.id,
+                version.id,
+                parsed.reason,
+                parsed.error_message or "unknown",
+            )
+            return
+
         parsed_path = self.storage.parsed_text_path(
             workspace_id=document.workspace_id,
             document_id=document.id,
@@ -135,10 +172,38 @@ class IngestionJobRunner:
         )
         self.storage.write_text(relative_path=parsed_path, content=parsed.normalized_text)
         version.parsed_text_path = parsed_path
+
+        # Run classification if enabled
+        if self.settings.classification.enabled and self.settings.classification.document_enabled:
+            self._classify_document(version, parsed)
+
         if version.processing_status == "pending":
             version.processing_status = "processing"
         self.jobs.enqueue(document_version_id=version.id, job_type=CHUNK_DOCUMENT)
         logger.info("ingestion.stage.parse.done job_id=%s version_id=%s parsed_path=%s", job.id, version.id, parsed_path)
+
+    def _classify_document(self, version: DocumentVersion, parsed) -> None:
+        """Classify document and store results in version fields. Never raises."""
+        try:
+            result = self.classification_service.classify_document_safe(
+                content=parsed.normalized_text,
+                filename=version.file_name,
+            )
+            if result:
+                version.inferred_doc_type = result.document_type.value
+                version.inferred_doc_type_confidence = result.confidence
+                logger.info(
+                    "ingestion.stage.classify.done version_id=%s doc_type=%s confidence=%f",
+                    version.id,
+                    result.document_type.value,
+                    result.confidence,
+                )
+        except Exception as e:
+            logger.warning(
+                "ingestion.stage.classify.error version_id=%s error=%s",
+                version.id,
+                str(e),
+            )
 
     def _handle_chunk_document(self, job: DocumentProcessingJob) -> None:
         version = self._version_for(job)

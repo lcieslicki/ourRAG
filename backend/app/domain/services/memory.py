@@ -13,6 +13,8 @@ from app.domain.services.access import WorkspaceAccessService
 class MemoryPackage:
     prompt_memory: ConversationMemory
     summary: ConversationSummary | None
+    retrieval_memory: dict | None = None
+    generation_memory: dict | None = None
 
 
 class ConversationMemoryService:
@@ -20,6 +22,8 @@ class ConversationMemoryService:
         self.session = session
         self.settings = settings
         self.access = WorkspaceAccessService(session)
+        # Advanced memory service will be set if advanced memory is configured
+        self._packaging_service = None
 
     def build_memory_package(
         self,
@@ -120,6 +124,69 @@ class ConversationMemoryService:
                 return summarizable[index + 1 :]
 
         return summarizable
+
+    def build_advanced_package(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+        conversation_id: str,
+        exclude_message_ids: set[str] | None = None,
+    ) -> "AdvancedMemoryPackage":
+        """Build an advanced memory package with retrieval and generation separation.
+
+        This method delegates to MemoryPackagingService to create separate memory
+        contexts optimized for retrieval (search intent) and generation (answer shaping).
+
+        Args:
+            user_id: The user ID (for access control).
+            workspace_id: The workspace ID (for scoping).
+            conversation_id: The conversation ID.
+            exclude_message_ids: Optional set of message IDs to exclude from memory.
+
+        Returns:
+            AdvancedMemoryPackage with both retrieval and generation contexts.
+
+        Raises:
+            ConversationAccessDenied: If user doesn't have access to the conversation.
+        """
+        # Import here to avoid circular imports
+        from app.domain.memory_context.packaging_service import MemoryPackagingService
+        from app.domain.memory_context.models import AdvancedMemoryPackage
+        from app.core.config.advanced_memory_config import AdvancedMemoryConfig
+
+        # Build standard memory package first (for access control and basic processing)
+        memory_package = self.build_memory_package(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            exclude_message_ids=exclude_message_ids,
+        )
+
+        # Get configuration (with defaults if not in settings)
+        advanced_config = AdvancedMemoryConfig()
+
+        # Get the conversation and recent messages
+        conversation = self._conversation_for_access(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+        )
+        excluded_ids = exclude_message_ids or set()
+        recent_messages = [
+            message
+            for message in sorted(conversation.messages, key=lambda item: item.created_at)
+            if message.id not in excluded_ids and message.role in {"user", "assistant"}
+        ]
+
+        # Build advanced package
+        packaging_service = MemoryPackagingService(settings=advanced_config)
+        summary_text = memory_package.summary.summary_text if memory_package.summary else None
+        return packaging_service.build_advanced(
+            conversation_id=conversation_id,
+            recent_messages=recent_messages,
+            summary=summary_text,
+        )
 
 
 def build_simple_summary(*, existing_summary: str | None, messages: list[Message], max_chars: int = 1600) -> str:
